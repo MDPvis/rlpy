@@ -23,3 +23,4 @@ from .FiniteTrackCartPole import (FiniteCartPoleBalance,
                                  FiniteCartPoleSwingUp,
                                  FiniteCartPoleSwingUpFriction)
 from .InfiniteTrackCartPole import InfCartPoleBalance, InfCartPoleSwingUp
+from .Stitching import Stitching

@@ -5,29 +5,124 @@ of another problem domain.
 **REFERENCE:**
 Based on `Batch Mode Reinforcement Learning based on the
 Synthesis of Artificial Trajectories <https://goo.gl/1yveeS>`_
-
-**TODOS (things I am working on)**
-
-todo: pickle database so it isn't always re-generated.
-
-todo: use multinomial logistic regression for a generic, interpretable policy supporting more than one action?
-http://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
-
-todo: use generatorPolicies, targetPolicies, and evaluationPolicies for generating database and metric
-
-todo: learn metric
-
 """
 
-from scipy.spatial import KDTree
+from sklearn.neighbors import BallTree
+from scipy.optimize import minimize
 import numpy as np
 from .Domain import Domain
 import math
+import os.path
+import sys
+from rlpy.Domains.StitchingPackage.benchmark import benchmark
 
 __copyright__ = "Copyright 2015, Sean McGregor"
 __credits__ = ["Sean McGregor"]
 __license__ = "BSD 3-Clause"
 __author__ = ["Sean McGregor"]
+
+class MahalanobisDistance(object):
+    """
+    A class for optimizing a Mahalanobis distance metric.
+    The metric is initialized to the identity matrix, which is equivalent to Euclidean distance.
+    Calling the "optimize" function with sets of rollouts attempts to update the
+    distance metric so that the objective function is minimized
+    http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
+    """
+    def __init__(self, var_count, stitching, target):
+        """
+        :param var_count: The number of variables in the distance metric.
+        :param stitching: The Stitching class whose distance metric we are attempting to update.
+        :param target: The rollouts whose distribution we are attempting to approximate.
+          These will be used to repeatedly evaluate the visual fidelity objective.
+        """
+        self.distance_metric = np.identity(var_count)
+        self.stitching = stitching
+        self.target = target
+
+    prng_for_policy = np.random.RandomState(0)
+
+    @staticmethod
+    def random_policy(s, actions):
+        """Default to a random action selection"""
+        return MahalanobisDistance.prng_for_policy.choice(actions)
+
+    @staticmethod
+    def generate_rollouts(domain, labels, count, horizon, policy=random_policy):
+        """
+            Helper function for generating rollouts from all the domains.
+            Args:
+                domain (Domain): The domain that will be called to generate rollouts.
+                labels (list(String)): A list of the state labels.
+                count (integer): The number of rollouts to generate.
+                horizon (integer): The maximum length of rollouts.
+                policy (function(state, actions)): The function used to select an action.
+        """
+        rollouts = []
+        for rollout_number in range(count):
+            rollout = []
+            domain.s0() # reset the state
+            while not domain.isTerminal() and len(rollout) < horizon:
+                possible_actions = domain.possibleActions()
+                action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
+                state = {}
+                for i in range(len(labels)):
+                    state[labels[i]] = domain.state[i]
+                state["action"] = action
+                r, ns, terminal, currentPossibleActions = domain.step(action)
+                state["reward"] = r
+                rollout.append(state)
+            rollouts.append(rollout)
+        return rollouts
+
+    @staticmethod
+    def loss(flat_metric, stitching, target):
+        """
+        The function we are trying to minimize when updating the distance metric.
+        """
+        old_tree = stitching.tree
+        length = int(math.sqrt(len(flat_metric)))
+        matrix = []
+        for i in range(length):
+            matrix.append([])
+        for idx, val in enumerate(flat_metric):
+            matrix[int(idx/length)].append(val)
+
+        stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
+
+        labels = ["x", "xdot"] # todo, get the labels another way
+        count = 20
+        horizon = 5
+        policy = MahalanobisDistance.random_policy
+        synthesized_rollouts = MahalanobisDistance.generate_rollouts(stitching, labels, count, horizon, policy)
+        target = MahalanobisDistance.generate_rollouts(stitching.domain, labels, count, horizon, policy = policy)
+
+        total_benchmark = 0
+        x_bench = benchmark(target, synthesized_rollouts, "x") # todo, iterate over the dictionary keys
+        total_benchmark += x_bench
+        stitching.tree = old_tree
+        return total_benchmark
+
+    def optimize(self):
+        """
+        Update the distance metric to optimize the 
+        """
+        res = minimize(MahalanobisDistance.loss, self.distance_metric, args=(self.stitching, self.target))
+
+        # The result was flattened, need to make square
+        length = int(math.sqrt(len(res.x)))
+        matrix = []
+        for i in range(length):
+            matrix.append([])
+        for idx, val in enumerate(res.x):
+            matrix[int(idx/length)].append(val)
+        self.distance_metric = matrix
+
+    def get_matrix(self):
+        """
+        Return the current distance metric.
+        """
+        return np.array(self.distance_metric)
 
 class TransitionTuple(tuple):
     """
@@ -53,6 +148,7 @@ class TransitionTuple(tuple):
         t.isInitial = isInitial
         t.reward = reward
         t.possibleActions = possibeActions
+        t.last_accessed_iteration = -1 # determines whether it is available for stitching
         return t
 
 class Stitching(Domain):
@@ -72,38 +168,91 @@ class Stitching(Domain):
                       generating policy. \n
     """
 
-    def __init__(self, domain, database = [], rolloutCount = 100, horizon = 100):
+    def __init__(self,
+      domain,
+      rolloutCount = 100,
+      horizon = 100,
+      generatingPolicies = [],
+      trainingPolicies = [],
+      stitchingToleranceSingle = .1,
+      stitchingToleranceCumulative = .1,
+      searchDistance = 0, # The ball from which a random point will be returned
+      seed = None,
+      database = None
+    ):
         """
         :param domain: The domain used to generate MC rollouts
-        :param database: A set of pre-computed state transitions
         :param rolloutCount: The number of rollouts to generate for each policy
         :param horizon: The maximum number of transitions for each rollout
+        :param generatingPolicies: The policies that are used to populate the transition
+          database.
+        :param trainingPolicies: The policies that are used to learn a distance metric.
+        :param stitchingToleranceSingle:How much distance a transition
+          can stitch before it fails.
+        :param stitchingToleranceCumulative: How much distance the trajectory
+          can stitch before the entire trajectory is a failure.
+        :param seed: The random seed. Defaults to random.
         """
         self.domain = domain
-        self.database = database
         self.rolloutCount = rolloutCount
         self.horizon = horizon
+        self.database = []
 
-        self._populateDatabase()
+        def randomPolicy(s, actions):
+            """Default to a random action selection"""
+            return self.random_state.choice(actions)
+        self.generatingPolicies = generatingPolicies
+        if not generatingPolicies:
+            self.generatingPolicies = [randomPolicy]
+        self.trainingPolicies = trainingPolicies
+        if not trainingPolicies:
+            self.trainingPolicies = [randomPolicy] 
+        self.stitchingToleranceSingle = stitchingToleranceSingle
+        self.stitchingToleranceCumulative = stitchingToleranceCumulative
+
+        self.searchDistance = searchDistance
+        self.random_state = np.random.RandomState(seed)
+        
+        # http://docs.scipy.org/doc/scipy-0.15.1/reference/generated/scipy.spatial.KDTree.html
+        sys.setrecursionlimit(10000)
+        if database:
+            database = self.database
+        else:
+            self._populateDatabase()
+
+
+        # todo, change these data to target a different distribution than the database
+        mahalanobis_metric = MahalanobisDistance(3, self, self.database)
+        self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix()) # Create the Ball-tree
+        mahalanobis_metric.optimize()
+        print mahalanobis_metric.distance_metric
+        self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix())
 
     def _populateDatabase(self):
         """
         Load many transitions into the database then create the KD-Tree.
         """
-        for rolloutNumber in range(self.rolloutCount):
-            self.domain.s0() # reset the state
-            currentDepth = 0
-            while not self.domain.isTerminal() and currentDepth < self.horizon:
-                state = self.domain.state
-                possible_actions = self.domain.possibleActions()
-                action = np.random.choice(possible_actions)# todo, make this an actual policy
-                state = np.append(state, action)
-                r, ns, terminal, nextStatePossibleActions = self.domain.step(action)
-                ns = self.domain.state # The helicopter domain is partially observable so we need to grab the full state
-                t = TransitionTuple(state, ns, terminal, (currentDepth == 0), r, nextStatePossibleActions)
-                self.database.append(t)
-                currentDepth += 1
-        self.tree = KDTree(self.database) # Create the KD-tree
+        
+        for policy in self.generatingPolicies:
+            for rolloutNumber in range(self.rolloutCount):
+                self.domain.s0() # reset the state
+                currentDepth = 0
+                while not self.domain.isTerminal() and currentDepth < self.horizon:
+                    state = self.domain.state
+                    possible_actions = self.domain.possibleActions()
+                    action = policy(state, possible_actions)# todo, make this an actual policy
+                    state = np.append(state, action)
+                    r, ns, terminal, nextStatePossibleActions = self.domain.step(action)
+                    ns = self.domain.state # The helicopter domain is partially observable so we need to grab the full state
+                    t = TransitionTuple(state, ns, terminal, (currentDepth == 0), r, nextStatePossibleActions)
+                    self.database.append(t)
+                    currentDepth += 1
+        
+
+
+# todo: need to move the "getRollouts" function into this class because
+# it can record a query counter that will determine when transitions can be used
+# in subsequent queries
 
     def _getClosest(self, state, a):
         """
@@ -114,17 +263,16 @@ class Stitching(Domain):
         """
         q = list(state)
         q.append(a)
-        d, index = self.tree.query(q, 5)
-
-        # if the values are the same, we want to draw one of them at random
-        distance = d[0]
-        i = 0
-        while len(d) < i and distance == d[i]:
-            i += 1
-        r = np.random.rand(1,1)[0][0]
-        selection = math.floor(r*i)
-
-        return self.database[index[selection]]
+        (distances_array, indices_array) = self.tree.query(q,
+          k=min(5, len(self.database)),
+          return_distance=True,
+          sort_results=True)
+        indices = indices_array[0]
+        for i in indices:
+            if self.database[i].last_accessed_iteration != 0: # todo: change this to an actual value
+                self.database[i].last_accessed_iteration = -1 # todo: change this to the current counter
+                return self.database[i]
+        raise Exception # There were no valid points within the search distance
 
     def possibleActions(self):
         """

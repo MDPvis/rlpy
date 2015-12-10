@@ -7,38 +7,6 @@ import random
 import nose.tools
 from rlpy.Domains.StitchingPackage.benchmark import benchmark
 
-prng_for_policy = np.random.RandomState(0)
-def random_policy(s, actions):
-    """Default to a random action selection"""
-    return prng_for_policy.choice(actions)
-
-def generate_rollouts(domain, labels, count, horizon, policy=random_policy):
-    """
-        Helper function for generating rollouts from all the domains.
-        Args:
-            domain (Domain): The domain that will be called to generate rollouts.
-            labels (list(String)): A list of the state labels.
-            count (integer): The number of rollouts to generate.
-            horizon (integer): The maximum length of rollouts.
-            policy (function(state, actions)): The function used to select an action.
-    """
-    rollouts = []
-    for rollout_number in range(count):
-        rollout = []
-        domain.s0() # reset the state
-        while not domain.isTerminal() and len(rollout) < horizon:
-            possible_actions = domain.possibleActions()
-            action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
-            state = {}
-            for i in range(len(labels)):
-                state[labels[i]] = domain.state[i]
-            state["action"] = action
-            r, ns, terminal, currentPossibleActions = domain.step(action)
-            state["reward"] = r
-            rollout.append(state)
-        rollouts.append(rollout)
-    return rollouts
-
 def test_near_exact_reproduction_of_rollouts_under_same_policy():
     """
     Generate rollouts on a domain and then synthesize rollouts
@@ -63,8 +31,8 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
         return possibleActions[policyNumber]
 
     synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = generate_rollouts(mountaincar, labels, number_rollouts, horizon, policy = policy)
-    synthesized_rollouts = generate_rollouts(synthesis_domain, labels, number_rollouts, horizon, policy = policy)
+    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
     x_bench = benchmark(true_rollouts, synthesized_rollouts, "x")
     assert x_bench < .03, "x is not synthesized within tolerance, current: %f" % x_bench
     xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot")
@@ -97,8 +65,8 @@ def test_starting_state_distribution_is_exact():
         return possibleActions[policyNumber]
 
     synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = generate_rollouts(mountaincar, labels, number_rollouts, horizon, policy = policy)
-    synthesized_rollouts = generate_rollouts(synthesis_domain, labels, number_rollouts, horizon, policy = policy)
+    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
     x_bench = benchmark(true_rollouts, synthesized_rollouts, "x", event_numbers=[0])
     
     assert x_bench == 0, "x is not synthesized within tolerance, current: %f" % x_bench
@@ -130,17 +98,17 @@ def test_consistency_in_random_numbers():
     def policy(state, possibleActions):
         return possibleActions[policyNumber]
 
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0)
-    true_rollouts = generate_rollouts(mountaincar, labels, number_rollouts, horizon, policy = policy)
-    synthesized_rollouts = generate_rollouts(synthesis_domain, labels, number_rollouts, horizon, policy = policy)
+    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
+    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
     first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
     repeated_first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
     assert first_benchmark == repeated_first_benchmark # No stochasticity in benchmark
 
     mountaincar = domain_mountain_car(noise)
     mountaincar.random_state = np.random.RandomState(0)
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0)
-    true_rollouts = generate_rollouts(mountaincar, labels, number_rollouts, horizon, policy = policy)
-    synthesized_rollouts = generate_rollouts(synthesis_domain, labels, number_rollouts, horizon, policy = policy)
+    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
+    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
     second_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
     assert first_benchmark == second_benchmark

@@ -48,34 +48,6 @@ class MahalanobisDistance(object):
         return MahalanobisDistance.prng_for_policy.choice(actions)
 
     @staticmethod
-    def generate_rollouts(domain, labels, count, horizon, policy=random_policy):
-        """
-            Helper function for generating rollouts from all the domains.
-            Args:
-                domain (Domain): The domain that will be called to generate rollouts.
-                labels (list(String)): A list of the state labels.
-                count (integer): The number of rollouts to generate.
-                horizon (integer): The maximum length of rollouts.
-                policy (function(state, actions)): The function used to select an action.
-        """
-        rollouts = []
-        for rollout_number in range(count):
-            rollout = []
-            domain.s0() # reset the state
-            while not domain.isTerminal() and len(rollout) < horizon:
-                possible_actions = domain.possibleActions()
-                action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
-                state = {}
-                for i in range(len(labels)):
-                    state[labels[i]] = domain.state[i]
-                state["action"] = action
-                r, ns, terminal, currentPossibleActions = domain.step(action)
-                state["reward"] = r
-                rollout.append(state)
-            rollouts.append(rollout)
-        return rollouts
-
-    @staticmethod
     def loss(flat_metric, stitching, target):
         """
         The function we are trying to minimize when updating the distance metric.
@@ -91,11 +63,11 @@ class MahalanobisDistance(object):
         stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
 
         labels = ["x", "xdot"] # todo, get the labels another way
-        count = 20
-        horizon = 5
+        count = min(20, len(stitching.database)) # todo, pick more sensible value
+        horizon = min(5, int(len(stitching.database)/count))  # todo, pick more sensible value
         policy = MahalanobisDistance.random_policy
-        synthesized_rollouts = MahalanobisDistance.generate_rollouts(stitching, labels, count, horizon, policy)
-        target = MahalanobisDistance.generate_rollouts(stitching.domain, labels, count, horizon, policy = policy)
+        target = stitching.getRollouts(labels, count, horizon, policy = policy, domain=stitching.domain)
+        synthesized_rollouts = stitching.getRollouts(labels, count, horizon, policy = policy, domain=stitching)
 
         total_benchmark = 0
         x_bench = benchmark(target, synthesized_rollouts, "x") # todo, iterate over the dictionary keys
@@ -198,6 +170,11 @@ class Stitching(Domain):
         self.horizon = horizon
         self.database = []
 
+        # Counter used to determine which set of rollouts are being generated.
+        # This ensures states are stitched without replacement only for the
+        # current set of rollouts.
+        self.rolloutSetCounter = -1
+
         def randomPolicy(s, actions):
             """Default to a random action selection"""
             return self.random_state.choice(actions)
@@ -220,19 +197,18 @@ class Stitching(Domain):
         else:
             self._populateDatabase()
 
-
         # todo, change these data to target a different distribution than the database
+        # todo, the metric is probably not optimizing because it can exactly reconstruct rollouts.
+        #       There is no signal to change the distance when everything is exact.
         mahalanobis_metric = MahalanobisDistance(3, self, self.database)
         self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix()) # Create the Ball-tree
         mahalanobis_metric.optimize()
-        print mahalanobis_metric.distance_metric
         self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix())
 
     def _populateDatabase(self):
         """
         Load many transitions into the database then create the KD-Tree.
         """
-        
         for policy in self.generatingPolicies:
             for rolloutNumber in range(self.rolloutCount):
                 self.domain.s0() # reset the state
@@ -247,14 +223,8 @@ class Stitching(Domain):
                     t = TransitionTuple(state, ns, terminal, (currentDepth == 0), r, nextStatePossibleActions)
                     self.database.append(t)
                     currentDepth += 1
-        
 
-
-# todo: need to move the "getRollouts" function into this class because
-# it can record a query counter that will determine when transitions can be used
-# in subsequent queries
-
-    def _getClosest(self, state, a):
+    def _getClosest(self, state, a, k=1):
         """
         returns (at random) one of the closest k point from the KD tree.
         :param state: The current state of the world that we want the closest transition for.
@@ -263,16 +233,58 @@ class Stitching(Domain):
         """
         q = list(state)
         q.append(a)
+        k = min(k, len(self.database))
         (distances_array, indices_array) = self.tree.query(q,
-          k=min(5, len(self.database)),
+          k=k,
           return_distance=True,
           sort_results=True)
         indices = indices_array[0]
         for i in indices:
-            if self.database[i].last_accessed_iteration != 0: # todo: change this to an actual value
-                self.database[i].last_accessed_iteration = -1 # todo: change this to the current counter
+            if self.database[i].last_accessed_iteration != self.rolloutSetCounter:
+                self.database[i].last_accessed_iteration = self.rolloutSetCounter
                 return self.database[i]
-        raise Exception # There were no valid points within the search distance
+        if k < 1000 and k < len(self.database):
+            return self._getClosest(state, a, k=k*10)
+        raise Exception("There were no valid points within {} points".format(k))
+
+    prng_for_policy = np.random.RandomState(0)
+    def random_policy(self, s, actions):
+        """Default to a random action selection"""
+        return prng_for_policy.choice(actions)
+
+    def getRollouts(self, labels, count, horizon, policy=None, domain=None):
+        """
+            Helper function for generating rollouts from all the domains.
+            Args:
+                labels (list(String)): A list of the state labels.
+                count (integer): The number of rollouts to generate.
+                horizon (integer): The maximum length of rollouts.
+                policy (function(state, actions)): The function used to select an action.
+                domain (Domain): The domain that will be called to generate rollouts.
+        """
+        if not policy:
+            policy = self.random_policy
+        if not domain:
+            domain = self
+
+        self.rolloutSetCounter += 1
+
+        rollouts = []
+        for rollout_number in range(count):
+            rollout = []
+            domain.s0() # reset the state
+            while not domain.isTerminal() and len(rollout) < horizon:
+                possible_actions = domain.possibleActions()
+                action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
+                state = {}
+                for i in range(len(labels)):
+                    state[labels[i]] = domain.state[i]
+                state["action"] = action
+                r, ns, terminal, currentPossibleActions = domain.step(action)
+                state["reward"] = r
+                rollout.append(state)
+            rollouts.append(rollout)
+        return rollouts
 
     def possibleActions(self):
         """

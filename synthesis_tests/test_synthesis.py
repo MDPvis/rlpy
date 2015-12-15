@@ -23,16 +23,28 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
     noise = .1
     mountaincar = domain_mountain_car(noise)
     mountaincar.random_state = np.random.RandomState(0)
-    labels = ["x", "xdot"]
 
     policyNumber = 0
 
     def policy(state, possibleActions):
         return possibleActions[policyNumber]
 
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
-    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
+    synthesis_domain = domain_stitching(
+      mountaincar,
+      rolloutCount=database_rollouts,
+      horizon=database_horizon,
+      databasePolicies=[policy],
+      seed = 0)
+    true_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=synthesis_domain)
     x_bench = benchmark(true_rollouts, synthesized_rollouts, "x")
     assert x_bench < .03, "x is not synthesized within tolerance, current: %f" % x_bench
     xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot")
@@ -57,17 +69,33 @@ def test_starting_state_distribution_is_exact():
     noise = .1
     mountaincar = domain_mountain_car(noise)
     mountaincar.random_state = np.random.RandomState(0)
-    labels = ["x", "xdot"]
 
     policyNumber = 0
 
     def policy(state, possibleActions):
         return possibleActions[policyNumber]
 
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
-    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
-    x_bench = benchmark(true_rollouts, synthesized_rollouts, "x", event_numbers=[0])
+    synthesis_domain = domain_stitching(
+      mountaincar,
+      rolloutCount=database_rollouts,
+      horizon=database_horizon,
+      databasePolicies=[policy],
+      seed=0)
+    true_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=synthesis_domain)
+    x_bench = benchmark(
+      true_rollouts,
+      synthesized_rollouts,
+      "x",
+      event_numbers=[0])
     
     assert x_bench == 0, "x is not synthesized within tolerance, current: %f" % x_bench
     xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot", event_numbers=[0])
@@ -91,24 +119,52 @@ def test_consistency_in_random_numbers():
     noise = .5
     mountaincar = domain_mountain_car(noise)
     mountaincar.random_state = np.random.RandomState(0)
-    labels = ["x", "xdot"]
 
     policyNumber = 0
 
     def policy(state, possibleActions):
         return possibleActions[policyNumber]
 
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
-    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
+    synthesis_domain = domain_stitching(
+      mountaincar,
+      rolloutCount=database_rollouts,
+      horizon=database_horizon,
+      databasePolicies=[policy],
+      seed = 0)
+    true_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=synthesis_domain)
     first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
     repeated_first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
-    assert first_benchmark == repeated_first_benchmark # No stochasticity in benchmark
+    assert first_benchmark == repeated_first_benchmark, "Repeated application of benchmark gave different results"
 
     mountaincar = domain_mountain_car(noise)
     mountaincar.random_state = np.random.RandomState(0)
-    synthesis_domain = domain_stitching(mountaincar, rolloutCount = database_rollouts, horizon = database_horizon, generatingPolicies = [policy], seed = 0, searchDistance = 0)
-    true_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=mountaincar)
-    synthesized_rollouts = synthesis_domain.getRollouts(labels, number_rollouts, horizon, policy = policy, domain=synthesis_domain)
-    second_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
-    assert first_benchmark == second_benchmark
+    synthesis_domain = domain_stitching(
+      mountaincar,
+      rolloutCount=database_rollouts,
+      horizon=database_horizon,
+      databasePolicies=[policy],
+      seed=0)
+    true_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=mountaincar)
+    synthesized_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy],
+      domain=synthesis_domain)
+    second_benchmark = benchmark(
+      true_rollouts,
+      synthesized_rollouts,
+      "x")
+    assert first_benchmark == second_benchmark, "Repeated generation of rollouts produced different benchmarks"

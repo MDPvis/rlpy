@@ -29,7 +29,7 @@ class MahalanobisDistance(object):
     distance metric so that the objective function is minimized
     http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
     """
-    def __init__(self, var_count, stitching, target):
+    def __init__(self, var_count, stitching, target_rollouts):
         """
         :param var_count: The number of variables in the distance metric.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
@@ -38,7 +38,7 @@ class MahalanobisDistance(object):
         """
         self.distance_metric = np.identity(var_count)
         self.stitching = stitching
-        self.target = target
+        self.target_rollouts = target_rollouts
 
     prng_for_policy = np.random.RandomState(0)
 
@@ -48,12 +48,17 @@ class MahalanobisDistance(object):
         return MahalanobisDistance.prng_for_policy.choice(actions)
 
     @staticmethod
-    def loss(flat_metric, stitching, target):
+    def loss(flat_metric, stitching, target_rollouts):
         """
         The function we are trying to minimize when updating the distance metric.
+        :param flat_metric: The metric represented as a list of values. This will be converted to
+          a matrix when computing distances.
+        :param stitching: The Stitching class whose distance metric we are attempting to update.
+        :param target_rollouts: The rollouts whose distribution we are attempting to approximate.
+          These will be used to repeatedly evaluate the visual fidelity objective.
         """
         old_tree = stitching.tree
-        length = int(math.sqrt(len(flat_metric)))
+        length = int(math.sqrt(len(flat_metric))) # Get the size of the matrix
         matrix = []
         for i in range(length):
             matrix.append([])
@@ -62,32 +67,44 @@ class MahalanobisDistance(object):
 
         stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
 
-        labels = ["x", "xdot"] # todo, get the labels another way
-        count = min(20, len(stitching.database)) # todo, pick more sensible value
-        horizon = min(5, int(len(stitching.database)/count))  # todo, pick more sensible value
-        policy = MahalanobisDistance.random_policy
-        target = stitching.getRollouts(labels, count, horizon, policy = policy, domain=stitching.domain)
-        synthesized_rollouts = stitching.getRollouts(labels, count, horizon, policy = policy, domain=stitching)
+        # Benchmark against the horizon and target policies of the stitching domain
+        rolloutCount = min(stitching.rolloutCount, 50) # We don't need more than 50 rollouts to benchmark
+        horizon = stitching.horizon
+        policies = stitching.targetPolicies
+        synthesized_rollouts = stitching.getRollouts(
+          count=rolloutCount,
+          horizon=horizon,
+          policies=policies,
+          domain=stitching)
 
         total_benchmark = 0
-        x_bench = benchmark(target, synthesized_rollouts, "x") # todo, iterate over the dictionary keys
-        total_benchmark += x_bench
+        for label in stitching.labels:
+            bench = benchmark(target_rollouts, synthesized_rollouts, label)
+            total_benchmark += bench
         stitching.tree = old_tree
         return total_benchmark
 
     def optimize(self):
         """
-        Update the distance metric to optimize the 
+        Optimize and save the distance metric.
         """
-        res = minimize(MahalanobisDistance.loss, self.distance_metric, args=(self.stitching, self.target))
+        res = minimize(
+          MahalanobisDistance.loss,
+          self.distance_metric,
+          args=(self.stitching, self.target_rollouts),
+          method="Powell",
+          tol=.000000001)
+          #options={"xtol":.00001})
+
+        print res
 
         # The result was flattened, need to make square
-        length = int(math.sqrt(len(res.x)))
+        row_length = int(math.sqrt(len(res.x)))
         matrix = []
-        for i in range(length):
+        for i in range(row_length):
             matrix.append([])
         for idx, val in enumerate(res.x):
-            matrix[int(idx/length)].append(val)
+            matrix[int(idx/row_length)].append(val)
         self.distance_metric = matrix
 
     def get_matrix(self):
@@ -144,21 +161,24 @@ class Stitching(Domain):
       domain,
       rolloutCount = 100,
       horizon = 100,
-      generatingPolicies = [],
-      trainingPolicies = [],
+      databasePolicies = [],
+      targetPolicies = [],
+      targetPoliciesRolloutCount = 50,
       stitchingToleranceSingle = .1,
       stitchingToleranceCumulative = .1,
-      searchDistance = 0, # The ball from which a random point will be returned
       seed = None,
-      database = None
+      database = None,
+      labels = ["x", "xdot"] # default to the MountainCar domain
     ):
         """
         :param domain: The domain used to generate MC rollouts
         :param rolloutCount: The number of rollouts to generate for each policy
         :param horizon: The maximum number of transitions for each rollout
-        :param generatingPolicies: The policies that are used to populate the transition
+        :param databasePolicies: The policies that are used to populate the transition
           database.
-        :param trainingPolicies: The policies that are used to learn a distance metric.
+        :param targetPolicies: The policies that are used to learn a distance metric.
+        :param targetPoliciesRolloutCount: The number of rollouts to generate for each of the
+          target policies.
         :param stitchingToleranceSingle:How much distance a transition
           can stitch before it fails.
         :param stitchingToleranceCumulative: How much distance the trajectory
@@ -167,8 +187,10 @@ class Stitching(Domain):
         """
         self.domain = domain
         self.rolloutCount = rolloutCount
+        self.targetPoliciesRolloutCount = targetPoliciesRolloutCount
         self.horizon = horizon
         self.database = []
+        self.labels = labels
 
         # Counter used to determine which set of rollouts are being generated.
         # This ensures states are stitched without replacement only for the
@@ -178,18 +200,18 @@ class Stitching(Domain):
         def randomPolicy(s, actions):
             """Default to a random action selection"""
             return self.random_state.choice(actions)
-        self.generatingPolicies = generatingPolicies
-        if not generatingPolicies:
-            self.generatingPolicies = [randomPolicy]
-        self.trainingPolicies = trainingPolicies
-        if not trainingPolicies:
-            self.trainingPolicies = [randomPolicy] 
+        self.databasePolicies = databasePolicies
+        if not databasePolicies:
+            self.databasePolicies = [randomPolicy]
+        self.targetPolicies = targetPolicies
+        if not targetPolicies:
+            self.targetPolicies = [randomPolicy]
         self.stitchingToleranceSingle = stitchingToleranceSingle
         self.stitchingToleranceCumulative = stitchingToleranceCumulative
 
-        self.searchDistance = searchDistance
         self.random_state = np.random.RandomState(seed)
-        
+
+        # This might not be necessary with the Ball Tree
         # http://docs.scipy.org/doc/scipy-0.15.1/reference/generated/scipy.spatial.KDTree.html
         sys.setrecursionlimit(10000)
         if database:
@@ -197,30 +219,57 @@ class Stitching(Domain):
         else:
             self._populateDatabase()
 
-        # todo, change these data to target a different distribution than the database
-        # todo, the metric is probably not optimizing because it can exactly reconstruct rollouts.
-        #       There is no signal to change the distance when everything is exact.
-        mahalanobis_metric = MahalanobisDistance(3, self, self.database)
-        self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix()) # Create the Ball-tree
-        mahalanobis_metric.optimize()
-        self.tree = BallTree(self.database, metric="mahalanobis", VI=mahalanobis_metric.get_matrix())
+        target_rollouts = self.getRollouts(
+              count=self.targetPoliciesRolloutCount,
+              horizon=self.horizon,
+              policies=self.targetPolicies,
+              domain=self.domain)
+
+        mahalanobis_metric = MahalanobisDistance(3, self, target_rollouts)
+        self.mahalanobis_metric = mahalanobis_metric
+        self.tree = BallTree(
+          self.database,
+          metric="mahalanobis",
+          VI=self.mahalanobis_metric.get_matrix())
+
+    def optimize_metric(self):
+        """
+        Update the mahalanobis metric by attempting to optimize it
+        for the already defined target rollouts, database, and policies.
+        You should call this after initializing the stitching domain if you
+        want better performance, but expect it to take a while to find a
+        better metric.
+        """
+        self.mahalanobis_metric.optimize()
+        self.tree = BallTree(
+          self.database,
+          metric="mahalanobis",
+          VI=self.mahalanobis_metric.get_matrix())
 
     def _populateDatabase(self):
         """
         Load many transitions into the database then create the KD-Tree.
         """
-        for policy in self.generatingPolicies:
+        for policy in self.databasePolicies:
             for rolloutNumber in range(self.rolloutCount):
                 self.domain.s0() # reset the state
                 currentDepth = 0
                 while not self.domain.isTerminal() and currentDepth < self.horizon:
                     state = self.domain.state
                     possible_actions = self.domain.possibleActions()
-                    action = policy(state, possible_actions)# todo, make this an actual policy
+                    action = policy(state, possible_actions)
                     state = np.append(state, action)
                     r, ns, terminal, nextStatePossibleActions = self.domain.step(action)
-                    ns = self.domain.state # The helicopter domain is partially observable so we need to grab the full state
-                    t = TransitionTuple(state, ns, terminal, (currentDepth == 0), r, nextStatePossibleActions)
+
+                    # The helicopter domain is partially observable so we need to grab the full state
+                    ns = self.domain.state
+                    t = TransitionTuple(
+                      state,
+                      ns,
+                      terminal,
+                      (currentDepth == 0),
+                      r,
+                      nextStatePossibleActions)
                     self.database.append(t)
                     currentDepth += 1
 
@@ -252,38 +301,38 @@ class Stitching(Domain):
         """Default to a random action selection"""
         return prng_for_policy.choice(actions)
 
-    def getRollouts(self, labels, count, horizon, policy=None, domain=None):
+    def getRollouts(self, count=10, horizon=10, policies=None, domain=None):
         """
             Helper function for generating rollouts from all the domains.
             Args:
-                labels (list(String)): A list of the state labels.
                 count (integer): The number of rollouts to generate.
                 horizon (integer): The maximum length of rollouts.
                 policy (function(state, actions)): The function used to select an action.
                 domain (Domain): The domain that will be called to generate rollouts.
         """
-        if not policy:
-            policy = self.random_policy
+        if not policies:
+            policy = [self.random_policy]
         if not domain:
             domain = self
 
         self.rolloutSetCounter += 1
 
         rollouts = []
-        for rollout_number in range(count):
-            rollout = []
-            domain.s0() # reset the state
-            while not domain.isTerminal() and len(rollout) < horizon:
-                possible_actions = domain.possibleActions()
-                action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
-                state = {}
-                for i in range(len(labels)):
-                    state[labels[i]] = domain.state[i]
-                state["action"] = action
-                r, ns, terminal, currentPossibleActions = domain.step(action)
-                state["reward"] = r
-                rollout.append(state)
-            rollouts.append(rollout)
+        for policy in policies:
+            for rollout_number in range(count):
+                rollout = []
+                domain.s0() # reset the state
+                while not domain.isTerminal() and len(rollout) < horizon:
+                    possible_actions = domain.possibleActions()
+                    action = policy(domain.state, possible_actions)
+                    state = {}
+                    for i in range(len(self.labels)):
+                        state[self.labels[i]] = domain.state[i]
+                    state["action"] = action
+                    r, ns, terminal, currentPossibleActions = domain.step(action)
+                    state["reward"] = r
+                    rollout.append(state)
+                rollouts.append(rollout)
         return rollouts
 
     def possibleActions(self):

@@ -8,7 +8,7 @@ before_install:
     - "sudo apt-get install python-tk python-matplotlib python-sklearn python-numpy python-scipy"
 install: 
     - "pip install cython"
-    - "pip install scipy"
+    - "python -c 'import scipy; print scipy.__version__'"
     - "python setup.py develop"
     - "sed -i \"/^\\/usr\\/lib/d\" /home/travis/virtualenv/python2.7_with_system_site_packages/local/lib/python2.7/site-packages/easy-install.pth || echo Error"
 script:

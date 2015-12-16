@@ -1,18 +1,31 @@
 language: python
-virtualenv:
-    system_site_packages: true
 python:
-    - "2.7"
+  # We don't actually use the Travis Python, but this keeps it organized.
+  - "2.6"
+  - "2.7"
+  - "3.3"
+  - "3.4"
 before_install:
     - "sudo apt-get update -qq"
     - "sudo apt-get install python-tk python-matplotlib python-sklearn python-scipy"
-install: 
-    - "pip install --upgrade pip"
-    - "pip install cython"
-    - "pip install --upgrade scipy"
-    - "python -c 'import scipy; print scipy.__version__'"
-    - "python setup.py develop"
-    - "sed -i \"/^\\/usr\\/lib/d\" /home/travis/virtualenv/python2.7_with_system_site_packages/local/lib/python2.7/site-packages/easy-install.pth || echo Error"
+install:
+  - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
+        wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh;
+      else
+        wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
+      fi
+    - bash miniconda.sh -b -p $HOME/miniconda
+    - export PATH="$HOME/miniconda/bin:$PATH"
+    - hash -r
+    - conda config --set always_yes yes --set changeps1 no
+    - conda update -q conda
+    # Useful for debugging any issues with conda
+    - conda info -a
+
+    # Replace dep1 dep2 ... with your dependencies
+    - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION cython 
+    - source activate test-environment
+    - python setup.py install
 script:
     - "xvfb-run --server-args=\"-screen 0 1024x768x24\" nosetests tests --logging-clear-handlers -v"
     - "xvfb-run --server-args=\"-screen 0 1024x768x24\" nosetests synthesis_tests --logging-clear-handlers -v"

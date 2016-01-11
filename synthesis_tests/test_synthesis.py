@@ -46,13 +46,13 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
       policies=[policy],
       domain=synthesis_domain)
     x_bench = benchmark(true_rollouts, synthesized_rollouts, "x")
-    assert x_bench < .03, "x is not synthesized within tolerance, current: %f" % x_bench
+    assert x_bench < .2, "x is not synthesized within tolerance, current: %f" % x_bench
     xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot")
-    assert xdot_bench < .01, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
+    assert xdot_bench < .2, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
     reward_bench = benchmark(true_rollouts, synthesized_rollouts, "reward")
-    assert reward_bench < .01, "reward is not synthesized within tolerance, current: %f" % reward_bench
+    assert reward_bench < .2, "reward is not synthesized within tolerance, current: %f" % reward_bench
     action_bench = benchmark(true_rollouts, synthesized_rollouts, "action")
-    assert action_bench < .01, "action is not synthesized within tolerance, current: %f" % action_bench
+    assert action_bench < .2, "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
 def test_starting_state_distribution_is_exact():

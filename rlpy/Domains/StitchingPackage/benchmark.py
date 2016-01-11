@@ -4,10 +4,7 @@
 # These functions are used in the unit test suite to ensure
 # the fidelity of synthesis for RLPy domains.
 
-
-# Set the given parameters to obtain the specified policies through
-# value iteration.
-
+import numpy as np
 
 def benchmark(
   base_rollouts,
@@ -38,6 +35,9 @@ def benchmark(
         events_count_in_synthesized_rollouts = len(max(synthesized_rollouts, key=len))
         event_numbers = range(0, min(events_count_in_base_rollouts, events_count_in_synthesized_rollouts))
 
+    fan_max = float("-inf")
+    fan_min = float("inf")
+
     for event_number in event_numbers:
         filter_function = lambda elem: len(elem) > event_number
         filtered_base_rollouts = filter(filter_function, base_rollouts)
@@ -45,6 +45,10 @@ def benchmark(
         sort_function = lambda elem: elem[event_number][variable_name]
         base = sorted(filtered_base_rollouts, key=sort_function)
         synthesized = sorted(filtered_synthesized_rollouts, key=sort_function)
+
+        fan_max = max(base[len(base) - 1][event_number][variable_name], fan_max)
+        fan_min = min(base[0][event_number][variable_name], fan_min)
+
         if len(base) == 0 or len(synthesized) == 0:
             raise Exception, "The lengths of the rollouts in the two benchmarked sets are not equal"
         for quantile in quantiles:
@@ -54,4 +58,11 @@ def benchmark(
             current_absolute_distance = abs(current_distance)
             accumulated_distance += current_absolute_distance
 
-    return accumulated_distance
+    # The distance is currently expressed in the units of the variable, which means the cost between
+    # different variables is not comparable. Since the lines will shift on the visual interface
+    # from between the max and min values of the base_rollouts, we can normalize on this range.
+    height = fan_max - fan_min
+    if height == 0:
+        return 0
+    else:
+        return accumulated_distance / height

@@ -9,6 +9,7 @@ Synthesis of Artificial Trajectories <https://goo.gl/1yveeS>`_
 
 from sklearn.neighbors import BallTree
 from scipy.optimize import minimize
+from scipy import linalg
 import numpy as np
 from .Domain import Domain
 import math
@@ -40,15 +41,97 @@ class MahalanobisDistance(object):
         self.stitching = stitching
         self.target_rollouts = target_rollouts
 
-    prng_for_policy = np.random.RandomState(0)
+    @staticmethod
+    def flatten(matrix):
+        """
+        Return the current distance metric as a single list of values.
+        """
+        flattened = []
+        for row in matrix:
+            for item in row:
+                flattened.append(item)
+        return flattened
 
     @staticmethod
-    def random_policy(s, actions):
-        """Default to a random action selection"""
-        return MahalanobisDistance.prng_for_policy.choice(actions)
+    def unflatten(flat_metric):
+        """
+        Return the current distance metric as a list of lists.
+        """
+        length = int(math.sqrt(len(flat_metric))) # Get the size of the matrix
+        matrix = []
+        for i in range(length):
+            matrix.append([])
+        for idx, val in enumerate(flat_metric):
+            matrix[int(idx/length)].append(val)
+        return matrix
 
     @staticmethod
-    def loss(flat_metric, stitching, target_rollouts):
+    def is_upper_triangular(matrix):
+        """
+        Checks whether all lower triangular values are zero.
+        Return True iff all lower triangular values are zero.
+        """
+        assert type(matrix[0]) == list
+        for row_idx, row in enumerate(matrix):
+            for col_idx, val in enumerate(row):
+                if row_idx > col_idx and val != 0:
+                    return False
+        return True
+
+    @staticmethod
+    def is_psd(matrix):
+        """
+        Checks whether the current matrix is positive semi-definite
+        by taking the Cholesky decomposition.
+        Returns True iff SciPy succeeds in taking the Cholesky decomp.
+        """
+        if type(matrix) == list:
+            matrix = np.array(matrix)
+        try:
+            L = linalg.cholesky(matrix, check_finite=True)
+        except linalg.LinAlgError:
+            return False
+        else:
+            return True
+
+    @staticmethod
+    def ceiling_exponentiate(flat_metric):
+        """
+        A list exponentiation function that maxes out at sys.float_info.max.
+        """
+        def new_exp(x):
+            try:
+                return math.exp(x)
+            except Exception:
+                if x < 0:
+                    return 0
+                else:
+                    return sys.float_info.max
+        return map(new_exp, flat_metric)
+
+    @staticmethod
+    def ceiling_logarithm(flat_metric):
+        """
+        Take the natural logarithm and allow zero values (give negative inf for zero values)
+        """
+        def new_log(x):
+            assert x >= 0
+            try:
+                return math.log(x)
+            except Exception:
+                if x == 0:
+                    return -sys.float_info.max
+                else:
+                    assert False # There should never be an under/over flow for this input
+        return map(new_log, flat_metric)
+
+    @staticmethod
+    def loss(flat_metric,
+             stitching,
+             target_rollouts,
+             self=None,
+             favor_normalized_euclidean=False,
+             benchmark_rollout_count=50):
         """
         The function we are trying to minimize when updating the distance metric.
         :param flat_metric: The metric represented as a list of values. This will be converted to
@@ -56,19 +139,18 @@ class MahalanobisDistance(object):
         :param stitching: The Stitching class whose distance metric we are attempting to update.
         :param target_rollouts: The rollouts whose distribution we are attempting to approximate.
           These will be used to repeatedly evaluate the visual fidelity objective.
+        :param self: A hack to make this staticmethod behave more like the MahalanobisDistance class.
+          Loss needs to be a static method for the minimization library, but we can still pass in
+          the MahalanobisDistance object as self.
+        :param favor_normalized_euclidean: Penalize movements away from normalized euclidean distance
+          functions.
         """
         old_tree = stitching.tree
-        length = int(math.sqrt(len(flat_metric))) # Get the size of the matrix
-        matrix = []
-        for i in range(length):
-            matrix.append([])
-        for idx, val in enumerate(flat_metric):
-            matrix[int(idx/length)].append(val)
-
+        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(flat_metric))
         stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
 
         # Benchmark against the horizon and target policies of the stitching domain
-        rolloutCount = min(stitching.rolloutCount, 50) # We don't need more than 50 rollouts to benchmark
+        rolloutCount = min(stitching.rolloutCount, benchmark_rollout_count)
         horizon = stitching.horizon
         policies = stitching.targetPolicies
         synthesized_rollouts = stitching.getRollouts(
@@ -78,40 +160,62 @@ class MahalanobisDistance(object):
           domain=stitching)
 
         total_benchmark = 0
-        for label in stitching.labels:
+        for label in stitching.labels:# + ["action", "reward"]: # todo: in some cases  should be here as well.
             bench = benchmark(target_rollouts, synthesized_rollouts, label)
             total_benchmark += bench
         stitching.tree = old_tree
+
+        #todo: improve or remove
+        if favor_normalized_euclidean:
+            for row_idx, row in enumerate(matrix):
+                for col_idx, cell in enumerate(row):
+                    if row_idx != col_idx:
+                        total_benchmark += abs(cell)
+
         return total_benchmark
 
     def optimize(self):
         """
-        Optimize and save the distance metric.
+        Optimize and save the distance metric in non-exponentiated form.
+        Improvements:
+          todo: revert .travis.yml file
+          todo: add metrics for stitching distance and count and add tests for them
+          todo: Add indicator variables for discrete actions, because the
+            ordinal shifts in the loss functions don't make sense for most domains.
+          todo: visualize optimized and non-optimized stitching
+          todo: look up older papers on log-Cholesky and Cholesky, read them
+          todo: Log cholesky \cite{Pinheiro1988} with powell, then maybe worry about lowe
+          todo: Use short trajectories and iteratively deepen the optimization
         """
+
+        # The loss function will exponentiate the solution, so our starting point should
+        # be the natural log of the solution.
+        inverse_exponentiated = MahalanobisDistance.ceiling_logarithm(
+          MahalanobisDistance.flatten(self.distance_metric))
+
         res = minimize(
           MahalanobisDistance.loss,
-          self.distance_metric,
-          args=(self.stitching, self.target_rollouts),
+          inverse_exponentiated,
+          args=(self.stitching, self.target_rollouts, self),
           method="Powell",
           tol=.000000001)
-          #options={"xtol":.00001})
 
         print res
 
         # The result was flattened, need to make square
-        row_length = int(math.sqrt(len(res.x)))
-        matrix = []
-        for i in range(row_length):
-            matrix.append([])
-        for idx, val in enumerate(res.x):
-            matrix[int(idx/row_length)].append(val)
+        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(res.x))
+
+        assert MahalanobisDistance.is_psd(matrix)
         self.distance_metric = matrix
 
-    def get_matrix(self):
+    def get_matrix_as_np_array(self, matrix=None):
         """
-        Return the current distance metric.
+        Return the current distance metric as a NumPy array.
         """
-        return np.array(self.distance_metric)
+        if matrix:
+            return np.array(matrix)
+        else:
+            return np.array(self.distance_metric)
 
 class TransitionTuple(tuple):
     """
@@ -230,7 +334,7 @@ class Stitching(Domain):
         self.tree = BallTree(
           self.database,
           metric="mahalanobis",
-          VI=self.mahalanobis_metric.get_matrix())
+          VI=self.mahalanobis_metric.get_matrix_as_np_array())
 
     def optimize_metric(self):
         """
@@ -244,7 +348,7 @@ class Stitching(Domain):
         self.tree = BallTree(
           self.database,
           metric="mahalanobis",
-          VI=self.mahalanobis_metric.get_matrix())
+          VI=self.mahalanobis_metric.get_matrix_as_np_array())
 
     def _populateDatabase(self):
         """

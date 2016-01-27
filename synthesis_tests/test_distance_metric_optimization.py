@@ -35,7 +35,7 @@ def test_initialization_of_mahalanobis_distance():
     synthesized_rollouts = synthesis_domain.getRollouts(number_rollouts, horizon, policies=[policy], domain=synthesis_domain)
 
     # get the metric
-    distance = MahalanobisDistance(3, synthesis_domain, true_rollouts)
+    distance = MahalanobisDistance(5, synthesis_domain, true_rollouts)
 
     assert distance.get_matrix_as_np_array()[0][0] == 1, "The initialized distance matrix is identity"
     assert distance.get_matrix_as_np_array()[1][1] == 1, "The initialized distance matrix is identity"
@@ -77,7 +77,7 @@ def test_updated_distance_metric_does_not_have_worse_performance():
       domain=synthesis_domain)
 
     # get the metric
-    distance = MahalanobisDistance(3, synthesis_domain, true_rollouts)
+    distance = MahalanobisDistance(5, synthesis_domain, true_rollouts)
 
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = []
@@ -126,7 +126,7 @@ def test_has_non_zero_loss():
       domain=mountaincar)
 
     # get the metric
-    distance = MahalanobisDistance(3, synthesis_domain, target_rollouts)
+    distance = MahalanobisDistance(5, synthesis_domain, target_rollouts)
 
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = []
@@ -154,7 +154,7 @@ def test_has_non_zero_loss():
       domain=gridworld)
 
     # get the metric
-    distance = MahalanobisDistance(3, synthesis_domain, target_rollouts)
+    distance = MahalanobisDistance(6, synthesis_domain, target_rollouts)
 
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = []
@@ -169,56 +169,62 @@ def test_has_zero_loss():
     There should be no loss when trying to reconstruct the rollouts from the database
     since the transition function has no stochasticity, ie, there is no noise in the domain.
     """
-    target_rollout_count = 60
+    target_rollout_count = 50
     target_horizon = 2
-    database_rollout_count = 2
+    database_rollout_count = 50
     database_horizon = 2
     mountaincar = domain_mountain_car(noise=0)
     mountaincar.random_state = np.random.RandomState(0)
 
     rs = np.random.RandomState(0)
     def generating_policy(state, possibleActions):
-        return rs.choice([-1,1]) # random direction
+        return rs.choice(possibleActions) # random direction
 
     synthesis_domain = domain_stitching(
       mountaincar,
       rolloutCount=database_rollout_count,
       horizon = database_horizon,
       databasePolicies=[generating_policy],
+      targetPolicies=[generating_policy],
       seed = 0)
-
+    rs = np.random.RandomState(0)
     target_rollouts = synthesis_domain.getRollouts(
       target_rollout_count,
       target_horizon,
       policies=[generating_policy],
       domain=mountaincar)
-
-    distance = MahalanobisDistance(3, synthesis_domain, [])
+    rs = np.random.RandomState(0)
+    distance = MahalanobisDistance(5, synthesis_domain, [])
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = MahalanobisDistance.flatten(matrix_metric_1)
-    
     flat_metric = MahalanobisDistance.ceiling_logarithm(flat_metric)
-    loss = MahalanobisDistance.loss(flat_metric, synthesis_domain, target_rollouts)
+    loss = MahalanobisDistance.loss(flat_metric,
+      synthesis_domain,
+      target_rollouts,
+      benchmark_rollout_count=target_rollout_count)
     assert loss == 0, "Loss is not zero: {}".format(loss)
 
     gridworld = domain_gridworld(noise=0)
     gridworld.random_state = np.random.RandomState(0)
 
+    rs = np.random.RandomState(0)
     synthesis_domain = domain_stitching(
       gridworld,
       labels=["x", "y"],
       rolloutCount=database_rollout_count,
       horizon = database_horizon,
       databasePolicies = [generating_policy],
+      targetPolicies=[generating_policy],
       seed = 0)
 
+    rs = np.random.RandomState(0)
     target_rollouts = synthesis_domain.getRollouts(
       target_rollout_count,
       target_horizon,
       policies=[generating_policy],
       domain=gridworld)
 
-    distance = MahalanobisDistance(3, synthesis_domain, [])
+    distance = MahalanobisDistance(6, synthesis_domain, [])
 
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = MahalanobisDistance.flatten(matrix_metric_1)
@@ -335,7 +341,7 @@ def test_updates_distance_metric_to_not_be_identity():
       policies=[synthesized_policy],
       domain=synthesis_domain)
 
-    distance = MahalanobisDistance(3, synthesis_domain, true_rollouts)
+    distance = MahalanobisDistance(5, synthesis_domain, true_rollouts)
 
     distance.optimize()
 

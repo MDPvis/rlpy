@@ -142,8 +142,6 @@ class MahalanobisDistance(object):
         :param self: A hack to make this staticmethod behave more like the MahalanobisDistance class.
           Loss needs to be a static method for the minimization library, but we can still pass in
           the MahalanobisDistance object as self.
-        :param favor_normalized_euclidean: Penalize movements away from normalized euclidean distance
-          functions.
         """
         old_tree = stitching.tree
         matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(flat_metric))
@@ -160,17 +158,10 @@ class MahalanobisDistance(object):
           domain=stitching)
 
         total_benchmark = 0
-        for label in stitching.labels:# + ["action", "reward"]: # todo: in some cases  should be here as well.
+        for label in stitching.labels + ["action", "reward"]:# todo: maybe separate each action in the MDPvis interface?
             bench = benchmark(target_rollouts, synthesized_rollouts, label)
             total_benchmark += bench
         stitching.tree = old_tree
-
-        #todo: improve or remove
-        if favor_normalized_euclidean:
-            for row_idx, row in enumerate(matrix):
-                for col_idx, cell in enumerate(row):
-                    if row_idx != col_idx:
-                        total_benchmark += abs(cell)
 
         return total_benchmark
 
@@ -178,7 +169,8 @@ class MahalanobisDistance(object):
         """
         Optimize and save the distance metric in non-exponentiated form.
         Improvements:
-          todo: revert .travis.yml file
+          todo: figure out why the off-diagonal of the distance metric is never changing
+          todo: --- Regularize the objective? --- Maybe square loss as well?
           todo: add metrics for stitching distance and count and add tests for them
           todo: Add indicator variables for discrete actions, because the
             ordinal shifts in the loss functions don't make sense for most domains.
@@ -193,12 +185,22 @@ class MahalanobisDistance(object):
         inverse_exponentiated = MahalanobisDistance.ceiling_logarithm(
           MahalanobisDistance.flatten(self.distance_metric))
 
+        def print_loss(vec):
+            print "==Optimization iteration complete=="
+            print vec
+            print "LOSS:"
+            print MahalanobisDistance.loss(
+                vec,
+                self.stitching, self.target_rollouts, self)
+
         res = minimize(
           MahalanobisDistance.loss,
           inverse_exponentiated,
           args=(self.stitching, self.target_rollouts, self),
           method="Powell",
-          tol=.000000001)
+          tol=.000000001,
+          options={"disp": True},
+          callback=print_loss)
 
         print res
 
@@ -315,6 +317,9 @@ class Stitching(Domain):
 
         self.random_state = np.random.RandomState(seed)
 
+        # Action Space
+        self.action_count = self.domain.actions_num
+
         # This might not be necessary with the Ball Tree
         # http://docs.scipy.org/doc/scipy-0.15.1/reference/generated/scipy.spatial.KDTree.html
         sys.setrecursionlimit(10000)
@@ -323,14 +328,21 @@ class Stitching(Domain):
         else:
             self._populateDatabase()
 
+        # todo: this would be better put in the MahalanobisDistance class since it is only used for
+        # optimizing the metric.
         target_rollouts = self.getRollouts(
               count=self.targetPoliciesRolloutCount,
               horizon=self.horizon,
               policies=self.targetPolicies,
               domain=self.domain)
 
-        mahalanobis_metric = MahalanobisDistance(3, self, target_rollouts)
-        self.mahalanobis_metric = mahalanobis_metric
+        # Count the total number of state variables and discrete actions
+        metric_size = self.action_count
+        for key in target_rollouts[0][0]:
+            if key != "action" and key != "reward":
+                metric_size += 1
+
+        self.mahalanobis_metric = MahalanobisDistance(metric_size, self, target_rollouts)
         self.tree = BallTree(
           self.database,
           metric="mahalanobis",
@@ -362,7 +374,9 @@ class Stitching(Domain):
                     state = self.domain.state
                     possible_actions = self.domain.possibleActions()
                     action = policy(state, possible_actions)
-                    state = np.append(state, action)
+                    action_indicator = [0] * self.action_count
+                    action_indicator[action] = 1
+                    state = np.append(state, action_indicator)
                     r, ns, terminal, nextStatePossibleActions = self.domain.step(action)
 
                     # The helicopter domain is partially observable so we need to grab the full state
@@ -382,20 +396,24 @@ class Stitching(Domain):
         returns (at random) one of the closest k point from the KD tree.
         :param state: The current state of the world that we want the closest transition for.
         :param a: The selected action for the current state.
-        :return: ``TransitionTuple`` The selected transition from the database.
+        :return: ``(TransitionTuple, distance)`` The selected transition from the database and the
+          distance to that transition.
         """
         q = list(state)
-        q.append(a)
+        action_indicator = [0] * self.action_count
+        action_indicator[a] = 1
+        q = np.append(q, action_indicator)
+
         k = min(k, len(self.database))
         (distances_array, indices_array) = self.tree.query(q,
           k=k,
           return_distance=True,
           sort_results=True)
         indices = indices_array[0]
-        for i in indices:
+        for index, i in enumerate(indices):
             if self.database[i].last_accessed_iteration != self.rolloutSetCounter:
                 self.database[i].last_accessed_iteration = self.rolloutSetCounter
-                return self.database[i]
+                return (self.database[i], distances_array[0][index])
         if k < 1000 and k < len(self.database):
             return self._getClosest(state, a, k=k*10)
         raise Exception("There were no valid points within {} points".format(k))
@@ -421,6 +439,8 @@ class Stitching(Domain):
 
         self.rolloutSetCounter += 1
 
+        self.totalStitchingDistance = 0
+
         rollouts = []
         for policy in policies:
             for rollout_number in range(count):
@@ -435,6 +455,10 @@ class Stitching(Domain):
                     state["action"] = action
                     r, ns, terminal, currentPossibleActions = domain.step(action)
                     state["reward"] = r
+
+                    # record stitching distance
+                    if type(domain).__name__ == "Stitching":
+                        self.totalStitchingDistance += self.lastStitchDistance
                     rollout.append(state)
                 rollouts.append(rollout)
         return rollouts
@@ -450,7 +474,13 @@ class Stitching(Domain):
         Take the action *a*, update the state variable and return the reward,
         state, whether it is terminal, and the set of possible actions.
         """
-        postTransitionObject = self._getClosest(self.state, a)
+        (postTransitionObject, stitchDistance) = self._getClosest(self.state, a)
+        self.lastStitchDistance = stitchDistance # because we can't change the return signature
+        if stitchDistance < 0:
+            print postTransitionObject
+            print "action: " + str(a) # todo: why is there stitching distance based on the failing test?
+            print "to:"
+            print postTransitionObject.postState
         r = postTransitionObject.reward
         self.currentPossibleActions = postTransitionObject.possibleActions
         self.terminal = postTransitionObject.isTerminal

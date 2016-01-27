@@ -5,6 +5,7 @@ import numpy as np
 import os
 import random
 import nose.tools
+from rlpy.Domains.Stitching import MahalanobisDistance
 from rlpy.Domains.StitchingPackage.benchmark import benchmark
 
 def test_near_exact_reproduction_of_rollouts_under_same_policy():
@@ -168,3 +169,82 @@ def test_consistency_in_random_numbers():
       synthesized_rollouts,
       "x")
     assert first_benchmark == second_benchmark, "Repeated generation of rollouts produced different benchmarks"
+
+def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_database():
+    """
+    When benchmarking synthesized trajectories, it is important that the benchmark is not generated
+    from more trajectories than we have samples for.
+    """
+    target_rollout_count = 10
+    target_horizon = 4
+    database_rollout_count = 100
+    database_horizon = 4
+
+    prior_loss = 0
+
+    rs = np.random.RandomState(0)
+    def generating_policy(state, possibleActions):
+        return rs.choice(possibleActions)
+
+    def target_policy(state, possibleActions):
+        return possibleActions[0]
+
+    target_domain = domain_mountain_car(noise=.1)
+    target_domain.random_state = np.random.RandomState(0)
+    synthesis_domain = domain_stitching(
+      target_domain,
+      rolloutCount=database_rollout_count,
+      horizon=database_horizon,
+      databasePolicies=[generating_policy],
+      seed = 0)
+
+    target_rollouts = synthesis_domain.getRollouts(
+      target_rollout_count,
+      target_horizon,
+      policies=[target_policy],
+      domain=target_domain)
+    matrix_variable_count=5
+    mahalanobis_distance = MahalanobisDistance(matrix_variable_count, synthesis_domain, target_rollouts)
+    matrix_metric = mahalanobis_distance.get_matrix_as_np_array()
+    for bench_count in [45,50,70,100]:
+        current_loss = MahalanobisDistance.loss(
+          MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric)),
+          synthesis_domain,
+          target_rollouts,
+          benchmark_rollout_count=bench_count)
+        assert prior_loss < current_loss, "Curent loss ({}) did not degenerate from prior loss ({})".format(current_loss, prior_loss)
+        prior_loss = current_loss
+
+
+def test_stitching_distance():
+    """
+    The stitching distance should equal the flipping of the action value.
+    """
+    number_rollouts = 2
+    horizon = 100
+    database_rollouts = 2
+    database_horizon = 100
+    noise = .5
+    mountaincar = domain_mountain_car(noise)
+    mountaincar.random_state = np.random.RandomState(0)
+
+    # The policy in the database
+    def policy(state, possibleActions):
+        return 0
+    synthesis_domain = domain_stitching(
+      mountaincar,
+      rolloutCount=database_rollouts,
+      horizon=database_horizon,
+      databasePolicies=[policy],
+      seed = 0)
+
+    # The policy we are trying to approximate
+    def policy2(state, possibleActions):
+      return 1
+    synthesized_rollouts = synthesis_domain.getRollouts(
+      number_rollouts,
+      horizon,
+      policies=[policy2],
+      domain=synthesis_domain)
+
+    assert synthesis_domain.totalStitchingDistance < 283, "Stitching distance increased to: {}".format(synthesis_domain.totalStitchingDistance)

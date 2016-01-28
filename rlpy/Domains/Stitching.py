@@ -30,7 +30,7 @@ class MahalanobisDistance(object):
     distance metric so that the objective function is minimized
     http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
     """
-    def __init__(self, var_count, stitching, target_rollouts):
+    def __init__(self, var_count, stitching, target_rollouts, normalize_starting_metric=False):
         """
         :param var_count: The number of variables in the distance metric.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
@@ -40,6 +40,25 @@ class MahalanobisDistance(object):
         self.distance_metric = np.identity(var_count)
         self.stitching = stitching
         self.target_rollouts = target_rollouts
+        if normalize_starting_metric:
+            for idx, variable in enumerate(stitching.labels):
+                total = 0.
+                count = 0.
+                for rollout in target_rollouts:
+                    for event in rollout:
+                        total += event[variable]
+                        count += 1.
+                average = abs(total/count)
+                rooted = math.sqrt(1./average)
+                self.distance_metric[idx][idx] = rooted
+
+        # The Powell optimizer needs a non-zero value to find the emprical gradient in log space
+        for idx, row in enumerate(self.distance_metric):
+            for idx2, column in enumerate(row):
+                if idx != idx2:
+                    pass
+                    # todo: additional analysis of this
+                    #self.distance_metric[idx][idx2] = .00000000000000001
 
     @staticmethod
     def flatten(matrix):
@@ -172,15 +191,13 @@ class MahalanobisDistance(object):
         """
         Optimize and save the distance metric in non-exponentiated form.
         Improvements:
-          todo: figure out why the off-diagonal of the distance metric is never changing
+          todo: visualize optimized and non-optimized stitching
           todo: --- Regularize the objective? --- Maybe square loss as well?
           todo: add metrics for stitching distance and count and add tests for them
-          todo: Add indicator variables for discrete actions, because the
-            ordinal shifts in the loss functions don't make sense for most domains.
-          todo: visualize optimized and non-optimized stitching
+          todo: potentially reduce the number of actions in the distance metric by basing all the actions on a single action
+          todo: run experiments where states can only be stitched if they have the same action
           todo: look up older papers on log-Cholesky and Cholesky, read them
           todo: Log cholesky \cite{Pinheiro1988} with powell, then maybe worry about lowe
-          todo: Use short trajectories and iteratively deepen the optimization
         """
 
         # The loss function will exponentiate the solution, so our starting point should
@@ -479,11 +496,7 @@ class Stitching(Domain):
         """
         (postTransitionObject, stitchDistance) = self._getClosest(self.state, a)
         self.lastStitchDistance = stitchDistance # because we can't change the return signature
-        if stitchDistance < 0:
-            print postTransitionObject
-            print "action: " + str(a) # todo: why is there stitching distance based on the failing test?
-            print "to:"
-            print postTransitionObject.postState
+        assert stitchDistance >= 0
         r = postTransitionObject.reward
         self.currentPossibleActions = postTransitionObject.possibleActions
         self.terminal = postTransitionObject.isTerminal

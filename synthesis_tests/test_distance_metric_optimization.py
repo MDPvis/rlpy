@@ -470,3 +470,27 @@ def test_action_benchmarking():
       bootstrap_weight=True
     )
     assert bench == 2, "bench was {}".format(bench)
+
+def test_normalize_starting_metric():
+    """
+    The starting metric should be normalized so that the optimization algorithm
+    will have a good gradient immediately. This means the distance must be
+    equally sensitive to changes in all state variables.
+    """
+
+    class MockSynthesis(object):
+        pass
+
+    mock_synthesis = MockSynthesis()
+    mock_synthesis.labels = ["x1", "x2"]
+    target_rollouts = mock_target_rollouts["normalization"]
+    var_count = 2
+    distance = MahalanobisDistance(
+      var_count,
+      mock_synthesis,
+      target_rollouts,
+      normalize_starting_metric=True)
+    assert distance.distance_metric[0][0] == .1, "entry was {}".format(distance.distance_metric[0][0])
+    assert distance.distance_metric[1][1] == 1., "entry was {}".format(distance.distance_metric[1][1])
+    assert distance.distance_metric[1][0] == 0., "entry was {}".format(distance.distance_metric[1][0])
+    assert distance.distance_metric[0][1] == 0., "entry was {}".format(distance.distance_metric[0][1])

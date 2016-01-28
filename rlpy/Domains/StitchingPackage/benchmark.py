@@ -30,7 +30,7 @@ class Benchmark(object):
       synthesized_rollouts,
       action_count,
       event_numbers=[],
-      bootstrap_weight=True):
+      bootstrap_weight=False):
         """
         Benchmark the rendering of actions within the visualization as the average shift of the
         proportion of the states in each time step that selects each action.

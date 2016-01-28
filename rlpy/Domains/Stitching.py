@@ -15,7 +15,7 @@ from .Domain import Domain
 import math
 import os.path
 import sys
-from rlpy.Domains.StitchingPackage.benchmark import benchmark
+from rlpy.Domains.StitchingPackage.benchmark import Benchmark
 
 __copyright__ = "Copyright 2015, Sean McGregor"
 __credits__ = ["Sean McGregor"]
@@ -158,9 +158,12 @@ class MahalanobisDistance(object):
           domain=stitching)
 
         total_benchmark = 0
-        for label in stitching.labels + ["action", "reward"]:# todo: maybe separate each action in the MDPvis interface?
-            bench = benchmark(target_rollouts, synthesized_rollouts, label)
+        quantiles = [0,10,20,30,40,50,60,70,80,90,100]
+        for label in stitching.labels + ["reward"]:
+            bench = Benchmark.benchmark_variable(target_rollouts, synthesized_rollouts, label, quantiles=quantiles)
             total_benchmark += bench
+        action_benchmark = len(quantiles) * Benchmark.benchmark_actions(target_rollouts, synthesized_rollouts, stitching.action_count)
+        total_benchmark += action_benchmark
         stitching.tree = old_tree
 
         return total_benchmark

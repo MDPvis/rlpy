@@ -6,7 +6,7 @@ import os
 import random
 import nose.tools
 from rlpy.Domains.Stitching import MahalanobisDistance
-from rlpy.Domains.StitchingPackage.benchmark import benchmark
+from rlpy.Domains.StitchingPackage.benchmark import Benchmark
 
 def test_near_exact_reproduction_of_rollouts_under_same_policy():
     """
@@ -46,13 +46,13 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    x_bench = benchmark(true_rollouts, synthesized_rollouts, "x")
+    x_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
     assert x_bench < .2, "x is not synthesized within tolerance, current: %f" % x_bench
-    xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot")
+    xdot_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "xdot")
     assert xdot_bench < .2, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
-    reward_bench = benchmark(true_rollouts, synthesized_rollouts, "reward")
+    reward_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "reward")
     assert reward_bench < .2, "reward is not synthesized within tolerance, current: %f" % reward_bench
-    action_bench = benchmark(true_rollouts, synthesized_rollouts, "action")
+    action_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "action")
     assert action_bench < .2, "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
@@ -92,18 +92,18 @@ def test_starting_state_distribution_is_exact():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    x_bench = benchmark(
+    x_bench = Benchmark.benchmark_variable(
       true_rollouts,
       synthesized_rollouts,
       "x",
       event_numbers=[0])
     
     assert x_bench == 0, "x is not synthesized within tolerance, current: %f" % x_bench
-    xdot_bench = benchmark(true_rollouts, synthesized_rollouts, "xdot", event_numbers=[0])
+    xdot_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "xdot", event_numbers=[0])
     assert xdot_bench == 0, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
-    reward_bench = benchmark(true_rollouts, synthesized_rollouts, "reward", event_numbers=[0])
+    reward_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "reward", event_numbers=[0])
     assert reward_bench == 0, "reward is not synthesized within tolerance, current: %f" % reward_bench
-    action_bench = benchmark(true_rollouts, synthesized_rollouts, "action", event_numbers=[0])
+    action_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "action", event_numbers=[0])
     assert action_bench == 0, "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
@@ -142,8 +142,8 @@ def test_consistency_in_random_numbers():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
-    repeated_first_benchmark = benchmark(true_rollouts, synthesized_rollouts, "x")
+    first_benchmark = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
+    repeated_first_benchmark = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
     assert first_benchmark == repeated_first_benchmark, "Repeated application of benchmark gave different results"
 
     mountaincar = domain_mountain_car(noise)
@@ -164,7 +164,7 @@ def test_consistency_in_random_numbers():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    second_benchmark = benchmark(
+    second_benchmark = Benchmark.benchmark_variable(
       true_rollouts,
       synthesized_rollouts,
       "x")

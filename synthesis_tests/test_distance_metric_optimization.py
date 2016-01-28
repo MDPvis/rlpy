@@ -8,7 +8,8 @@ import os
 import random
 import sys
 import nose.tools
-from rlpy.Domains.StitchingPackage.benchmark import benchmark
+from mocks import mock_target_rollouts
+from rlpy.Domains.StitchingPackage.benchmark import Benchmark
 
 def test_initialization_of_mahalanobis_distance():
     """
@@ -446,3 +447,26 @@ def test_exponentiate_and_logarithm():
     assert flat_metric[1] - flat_metric2[1] < 0.00000000000001, message
     assert flat_metric[2] - flat_metric2[2] < 0.00000000000001, message
 
+def test_action_benchmarking():
+    """
+    The benchmark reported on actions should
+    be expressed as the average shift of the
+    percentiles among all the action plots.
+    """
+    bench = Benchmark.benchmark_actions(
+      mock_target_rollouts["simplistic"],
+      mock_target_rollouts["simplistic"],
+      2,
+      event_numbers=range(0, len(mock_target_rollouts["simplistic"])),
+      bootstrap_weight=True
+    )
+    assert bench == 0, "bench was {}".format(bench)
+
+    bench = Benchmark.benchmark_actions(
+      mock_target_rollouts["simplistic"],
+      mock_target_rollouts["simplistic opposite action"],
+      2,
+      event_numbers=range(0, len(mock_target_rollouts["simplistic"])),
+      bootstrap_weight=True
+    )
+    assert bench == 2, "bench was {}".format(bench)

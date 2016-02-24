@@ -239,19 +239,23 @@ def test_updated_distance_metric_improves_performance():
     """
     The optimizer should improve performance of the benchmark on the target policies.
     """
-    target_rollout_count = 60
-    target_horizon = 5
-    database_rollout_count = 60 # todo: figure out why increasing this count can lead to test failure
-    database_horizon = 5
+    assert False
+    target_rollout_count = 20
+    target_horizon = 8
+    database_rollout_count = 254
+    database_horizon = 8
 
-    def expectation(target_domain):
+    def expectation(target_domain, matrix_variable_count):
 
         rs = np.random.RandomState(0)
         def generating_policy(state, possibleActions):
             return rs.choice(possibleActions)
 
+        rs2 = np.random.RandomState(1)
         def target_policy(state, possibleActions):
-            return possibleActions[0]
+            # 3xUp, then down/up alternating until horizon in the gridworld domain
+            #return possibleActions[0]
+            return rs2.choice(possibleActions)
 
         synthesis_domain = domain_stitching(
           target_domain,
@@ -265,7 +269,7 @@ def test_updated_distance_metric_improves_performance():
           policies=[target_policy],
           domain=target_domain)
 
-        mahalanobis_distance = MahalanobisDistance(3, synthesis_domain, target_rollouts)
+        mahalanobis_distance = MahalanobisDistance(matrix_variable_count, synthesis_domain, target_rollouts, normalize_starting_metric=True)
 
         matrix_metric_not_optimized = mahalanobis_distance.get_matrix_as_np_array()
 
@@ -273,14 +277,14 @@ def test_updated_distance_metric_improves_performance():
           MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric_not_optimized)),
           synthesis_domain,
           target_rollouts,
-          benchmark_rollout_count=target_rollout_count)
+          benchmark_rollout_count=10) # Decrease the number of rollouts for benchmark, otherwise bias makes surrogate unreliable
         mahalanobis_distance.optimize()
         matrix_metric_optimized = mahalanobis_distance.get_matrix_as_np_array()
         optimized_loss = MahalanobisDistance.loss(
           MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric_optimized)),
           synthesis_domain,
           target_rollouts,
-          benchmark_rollout_count=target_rollout_count)
+          benchmark_rollout_count=10)
 
         print "metric: " + str(MahalanobisDistance.flatten(matrix_metric_not_optimized))
         print "starting_loss: " + str(starting_loss)
@@ -289,20 +293,15 @@ def test_updated_distance_metric_improves_performance():
 
         assert optimized_loss < starting_loss, "Optimized loss ({}) is not better than starting loss ({})".format(optimized_loss, starting_loss)
 
-    # todo: compare this one to the one that has zero loss
-    # todo: this has the same loss, why?
-    # It is stochastically selecting a state transition of all the
-    # closest state transitions
-
     print "\n\n\nMountain Car\n\n\n"
     mountaincar = domain_mountain_car(noise=.1)
     mountaincar.random_state = np.random.RandomState(0) 
-    expectation(target_domain=mountaincar)
+    expectation(target_domain=mountaincar, matrix_variable_count=5)
 
     print "\n\n\nGRID WORLD\n\n\n"
     gridworld = domain_gridworld(noise=.1)
     gridworld.random_state = np.random.RandomState(0)
-    expectation(target_domain=gridworld)
+    expectation(target_domain=gridworld, matrix_variable_count=6)
 
 def test_updates_distance_metric_to_not_be_identity():
     """
@@ -483,6 +482,7 @@ def test_normalize_starting_metric():
 
     mock_synthesis = MockSynthesis()
     mock_synthesis.labels = ["x1", "x2"]
+    mock_synthesis.action_count = 2
     target_rollouts = mock_target_rollouts["normalization"]
     var_count = 2
     distance = MahalanobisDistance(

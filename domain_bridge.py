@@ -11,6 +11,7 @@ from rlpy.Domains import GridWorld as domain_gridworld
 from rlpy.Domains import MountainCar as domain_mountain_car
 from rlpy.Domains import HelicopterHover as domain_helicopter
 from rlpy.Domains import Stitching as domain_stitching
+import numpy as np
 import os
 import random
 from flask_server import domain
@@ -34,9 +35,18 @@ gridworldInitialization = {
                              {"name": "Use Synthesis",
                               "description": "Non-zero values are true.",
                               "current_value": 0, "max": 1, "min": 0, "units": ""},
+                             {"name": "Metric Version",
+                              "description": "If synthesis is active, this will either optimize a new distance metric and cache it to metrics/VERSION, or load a pre-existing metric from the cache.",
+                              "current_value": 0, "max": 1000, "min": 0, "units": ""},
                              {"name": "noise",
                               "description": "Probability of a random transition from an action.",
                               "current_value": .01, "max": 1, "min": 0, "units": ""},
+                             {"name": "rollouts in database",
+                              "description": "Number of rollouts to draw from in the database.",
+                              "current_value": 1000, "max": 10000, "min": 10, "units": ""},
+                             {"name": "database rollouts horizon",
+                              "description": "How far into the future the database samples should go.",
+                              "current_value": 100, "max": 10000, "min": 5, "units": ""},
                              {"name": "rollout count",
                               "description": "Number of rollouts to generate.",
                               "current_value": 10, "max": 10000, "min": 1, "units": ""},
@@ -60,9 +70,18 @@ mountainCarInitialization = {
                             {"name": "Use Synthesis",
                              "description": "Non-zero values are true.",
                              "current_value": 0, "max": 1, "min": 0, "units": ""},
+                            {"name": "Metric Version",
+                             "description": "If synthesis is active, this will either optimize a new distance metric and cache it to metrics/VERSION, or load a pre-existing metric from the cache.",
+                             "current_value": 0, "max": 1000, "min": 0, "units": ""},
                             {"name": "noise",
                              "description": "Probability of a random transition from an action.",
                              "current_value": .01, "max": 1, "min": 0, "units": ""},
+                            {"name": "rollouts in database",
+                             "description": "Number of rollouts to draw from in the database.",
+                             "current_value": 1000, "max": 10000, "min": 10, "units": ""},
+                            {"name": "database rollouts horizon",
+                             "description": "How far into the future the database samples should go.",
+                             "current_value": 100, "max": 10000, "min": 5, "units": ""},
                             {"name": "rollout count",
                              "description": "Number of rollouts to generate.",
                              "current_value": 10, "max": 10000, "min": 1, "units": ""},
@@ -71,9 +90,9 @@ mountainCarInitialization = {
                              "current_value": 100, "max": 10000, "min": 1, "units": ""}
                             ],
                "policy": [
-                           {"name": "Place holder",
-                            "description":"todo, define logistic policies",
-                            "current_value": 0, "max": 99999, "min":0, "units": " "}
+                           {"name": "Policy Identifier",
+                            "description":"An integer identier of the current policy to always sample. -1 for random, 0 for always right, 2 for always left",
+                            "current_value": -1, "max": 99999, "min":-1, "units": " "}
                          ]
            }
 helicopterInitialization = {
@@ -86,9 +105,18 @@ helicopterInitialization = {
                            {"name": "Use Synthesis",
                             "description": "Non-zero values are true.",
                             "current_value": 0, "max": 1, "min": 0, "units": ""},
+                           {"name": "Metric Version",
+                            "description": "If synthesis is active, this will either optimize a new distance metric and cache it to metrics/VERSION, or load a pre-existing metric from the cache.",
+                            "current_value": 0, "max": 1000, "min": 0, "units": ""},
                            {"name": "noise",
                             "description": "Probability of a random transition from an action.",
                             "current_value": .01, "max": 1, "min": 0, "units": ""},
+                           {"name": "rollouts in database",
+                            "description": "Number of rollouts to draw from in the database.",
+                            "current_value": 1000, "max": 10000, "min": 10, "units": ""},
+                           {"name": "database rollouts horizon",
+                            "description": "How far into the future the database samples should go.",
+                            "current_value": 100, "max": 10000, "min": 5, "units": ""},
                            {"name": "rollout count",
                             "description": "Number of rollouts to generate.",
                             "current_value": 10, "max": 10000, "min": 1, "units": ""},
@@ -107,7 +135,11 @@ helicopterInitialization = {
 #         Get Rollouts           #
 ##################################
 
-def generateRollouts(domain, labels, count, horizon):
+def randomPolicy(s, actions):
+    """Default to a random action selection"""
+    return np.random.choice(actions)
+
+def generateRollouts(domain, labels, count, horizon, policy=randomPolicy):
     """
         Helper function for generating rollouts from all the domains.
         Args:
@@ -116,13 +148,19 @@ def generateRollouts(domain, labels, count, horizon):
             count (integer): The number of rollouts to generate.
             horizon (integer): The maximum length of rollouts.
     """
+
+    # Need to use the getRollouts function defined in the Stitching class because
+    # it ensures transitions are drawn from the database without replacement
+    if domain.__class__.__name__ == "Stitching":
+        return domain.getRollouts(count=count, horizon=horizon, policies=[policy])
+
     rollouts = []
     for rollout_number in range(count):
         rollout = []
         domain.s0() # reset the state
         while not domain.isTerminal() and len(rollout) < horizon:
             possible_actions = domain.possibleActions()
-            action = random.choice(possible_actions) # todo, make better, make this an actual policy
+            action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
             state = {}
             for i in range(len(labels)):
                 state[labels[i]] = domain.state[i]
@@ -144,13 +182,19 @@ def gridworldRollouts(query):
     """
     number_rollouts = int(query["transition"]["rollout count"])
     horizon = int(query["transition"]["horizon"])
+    database_rollouts = int(int(query["transition"]["rollouts in database"]))
+    database_horizon = int(int(query["transition"]["database rollouts horizon"]))
     noise = query["transition"]["noise"]
     maze = os.path.join(domain_gridworld.default_map_dir, '4x5.txt')
     gridworld = domain_gridworld(maze, noise=noise)
     domain = gridworld
+    metricFile = None
+    labels = ["x", "y"]
+    if query["transition"]["Metric Version"] != 0:
+        metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
     if int(query["transition"]["Use Synthesis"]) != 0:
-        domain = domain_stitching(gridworld, rolloutCount = 100, horizon = 20)
-    return generateRollouts(domain, ["x", "y"], number_rollouts, horizon)
+        domain = domain_stitching(gridworld, rolloutCount=database_rollouts, horizon=database_horizon, metricFile=metricFile, labels=labels)
+    return generateRollouts(domain, labels, number_rollouts, horizon)
 
 def mountainCarRollouts(query):
     """
@@ -163,12 +207,29 @@ def mountainCarRollouts(query):
     """
     number_rollouts = int(query["transition"]["rollout count"])
     horizon = int(query["transition"]["horizon"])
+    database_rollouts = int(query["transition"]["rollouts in database"])
+    database_horizon = int(query["transition"]["database rollouts horizon"])
     noise = query["transition"]["noise"]
     mountaincar = domain_mountain_car(noise)
     domain = mountaincar
+
+    metricFile = None
+    if query["transition"]["Metric Version"] != 0:
+        metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
+
+    policyNumber = int(query["policy"]["Policy Identifier"])
+
+    def policy(state, possibleActions):
+        return possibleActions[policyNumber]
+
     if int(query["transition"]["Use Synthesis"]) != 0:
-        domain = domain_stitching(mountaincar, rolloutCount = 50, horizon = 20)
-    return generateRollouts(domain, ["x", "xdot"], number_rollouts, horizon)
+        domain = domain_stitching(
+          mountaincar,
+          rolloutCount=database_rollouts,
+          horizon=database_horizon,
+          databasePolicies=[policy],
+          metricFile=metricFile)
+    return generateRollouts(domain, ["x", "xdot"], number_rollouts, horizon, policy = policy)
 
 def helicopterRollouts(query):
    """
@@ -182,11 +243,16 @@ def helicopterRollouts(query):
    number_rollouts = int(query["transition"]["rollout count"])
    horizon = int(query["transition"]["horizon"])
    discount = query["reward"]["discount_factor"]
+   database_rollouts = int(query["transition"]["rollouts in database"])
+   database_horizon = int(query["transition"]["database rollouts horizon"])
    noise = query["transition"]["noise"]
+   metricFile = None
+   if query["transition"]["Metric Version"] != 0:
+       metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
    helicopter = domain_helicopter(noise, discount)
    domain = helicopter
    if int(query["transition"]["Use Synthesis"]) != 0:
-       domain = domain_stitching(helicopter, rolloutCount = 50, horizon = 20)
+       domain = domain_stitching(helicopter, rolloutCount=database_rollouts, horizon=database_horizon, metricFile=metricFile)
    # Other state variables may be available
    return generateRollouts(domain, ["xerr", "yerr", "zerr", "u", "v", "w", "p", "q", "r"], number_rollouts, horizon)
 
@@ -225,13 +291,14 @@ def rollouts(query):
             to serving a gridworld domain.
     """
     if domain == "gridworld":
-        return gridworldRollouts(query)
+        rollouts = gridworldRollouts(query)
     elif domain == "mountaincar":
-        return mountainCarRollouts(query)
+        rollouts = mountainCarRollouts(query)
     elif domain == "helicopter":
-        return helicopterRollouts(query)
+        rollouts = helicopterRollouts(query)
     else:
-        return gridworldRollouts(query)
+        rollouts = gridworldRollouts(query)
+    return rollouts
 
 def optimize(query):
     """

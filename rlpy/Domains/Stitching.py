@@ -15,6 +15,7 @@ from .Domain import Domain
 import math
 import os.path
 import sys
+import pickle
 from rlpy.Domains.StitchingPackage.benchmark import Benchmark
 
 __copyright__ = "Copyright 2015, Sean McGregor"
@@ -30,13 +31,20 @@ class MahalanobisDistance(object):
     distance metric so that the objective function is minimized
     http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
     """
-    def __init__(self, var_count, stitching, target_rollouts, normalize_starting_metric=False):
+    def __init__(self, var_count, stitching, target_rollouts, normalize_starting_metric=True, cached_metric=None):
         """
         :param var_count: The number of variables in the distance metric.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
-        :param target: The rollouts whose distribution we are attempting to approximate.
+        :param target_rollouts: The rollouts whose distribution we are attempting to approximate.
           These will be used to repeatedly evaluate the visual fidelity objective.
+        :param normalize_starting_metric: Determines whether we scale the metric by the magnitude of the variable's mean.
+        :param cached_metric: A pre-computed metric, probably loaded from a file.
         """
+        if cached_metric:
+            self.distance_metric = cached_metric
+            return
+
+
         self.distance_metric = np.identity(var_count)
         self.stitching = stitching
         self.target_rollouts = target_rollouts
@@ -51,6 +59,8 @@ class MahalanobisDistance(object):
                 average = abs(total/count)
                 rooted = math.sqrt(1./average)
                 self.distance_metric[idx][idx] = rooted
+
+        self.benchmark = Benchmark(target_rollouts, self.stitching.action_count, seed=0)
 
         # The Powell optimizer needs a non-zero value to find the emprical gradient in log space
         for idx, row in enumerate(self.distance_metric):
@@ -147,17 +157,15 @@ class MahalanobisDistance(object):
     @staticmethod
     def loss(flat_metric,
              stitching,
-             target_rollouts,
+             benchmark,
              self=None,
-             favor_normalized_euclidean=False,
-             benchmark_rollout_count=50):
+             benchmark_rollout_count=10):# todo: change this back to 50
         """
         The function we are trying to minimize when updating the distance metric.
         :param flat_metric: The metric represented as a list of values. This will be converted to
           a matrix when computing distances.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
-        :param target_rollouts: The rollouts whose distribution we are attempting to approximate.
-          These will be used to repeatedly evaluate the visual fidelity objective.
+        :param benchmark: An instance of the Benchmark class.
         :param self: A hack to make this staticmethod behave more like the MahalanobisDistance class.
           Loss needs to be a static method for the minimization library, but we can still pass in
           the MahalanobisDistance object as self.
@@ -179,9 +187,9 @@ class MahalanobisDistance(object):
         total_benchmark = 0
         quantiles = [0,10,20,30,40,50,60,70,80,90,100]
         for label in stitching.labels + ["reward"]:
-            bench = Benchmark.benchmark_variable(target_rollouts, synthesized_rollouts, label, quantiles=quantiles)
+            bench = benchmark.benchmark_variable(synthesized_rollouts, label, quantiles=quantiles)
             total_benchmark += bench
-        action_benchmark = len(quantiles) * Benchmark.benchmark_actions(target_rollouts, synthesized_rollouts, stitching.action_count)
+        action_benchmark = len(quantiles) * benchmark.benchmark_actions(synthesized_rollouts)
         total_benchmark += action_benchmark
         stitching.tree = old_tree
 
@@ -191,8 +199,7 @@ class MahalanobisDistance(object):
         """
         Optimize and save the distance metric in non-exponentiated form.
         Improvements:
-          todo: visualize optimized and non-optimized stitching
-          todo: --- Regularize the objective? --- Maybe square loss as well?
+          todo: visualize mountain car optimized and non-optimized stitching
           todo: add metrics for stitching distance and count and add tests for them
           todo: potentially reduce the number of actions in the distance metric by basing all the actions on a single action
           todo: run experiments where states can only be stitched if they have the same action
@@ -211,12 +218,12 @@ class MahalanobisDistance(object):
             print "LOSS:"
             print MahalanobisDistance.loss(
                 vec,
-                self.stitching, self.target_rollouts, self)
+                self.stitching, self.benchmark, self)
 
         res = minimize(
           MahalanobisDistance.loss,
           inverse_exponentiated,
-          args=(self.stitching, self.target_rollouts, self),
+          args=(self.stitching, self.benchmark, self),
           method="Powell",
           tol=.000000001,
           options={"disp": True},
@@ -294,7 +301,8 @@ class Stitching(Domain):
       stitchingToleranceCumulative = .1,
       seed = None,
       database = None,
-      labels = ["x", "xdot"] # default to the MountainCar domain
+      labels = ["x", "xdot"], # default to the MountainCar domain
+      metricFile = None
     ):
         """
         :param domain: The domain used to generate MC rollouts
@@ -348,21 +356,42 @@ class Stitching(Domain):
         else:
             self._populateDatabase()
 
-        # todo: this would be better put in the MahalanobisDistance class since it is only used for
-        # optimizing the metric.
-        target_rollouts = self.getRollouts(
-              count=self.targetPoliciesRolloutCount,
-              horizon=self.horizon,
-              policies=self.targetPolicies,
-              domain=self.domain)
+        # Check the cache for the metric file
+        if metricFile and os.path.isfile(metricFile):
+            print "Using cached metric, delete file or change metric version to optimize a new one"
+            f = open(metricFile, "r")
+            met = pickle.load(f)
+            self.mahalanobis_metric = MahalanobisDistance(None, None, None, cached_metric=met)
+            f.close()
+        else:
 
-        # Count the total number of state variables and discrete actions
-        metric_size = self.action_count
-        for key in target_rollouts[0][0]:
-            if key != "action" and key != "reward":
-                metric_size += 1
+            # todo: this would be better put in the MahalanobisDistance class since it is only used for
+            # optimizing the metric.
+            target_rollouts = self.getRollouts(
+                  count=self.targetPoliciesRolloutCount,
+                  horizon=self.horizon,
+                  policies=self.targetPolicies,
+                  domain=self.domain)
 
-        self.mahalanobis_metric = MahalanobisDistance(metric_size, self, target_rollouts)
+            # Count the total number of state variables and discrete actions
+            metric_size = self.action_count
+            for key in target_rollouts[0][0]:
+                if key != "action" and key != "reward":
+                    metric_size += 1
+
+            self.mahalanobis_metric = MahalanobisDistance(metric_size, self, target_rollouts)
+            self.tree = BallTree(
+              self.database,
+              metric="mahalanobis",
+              VI=self.mahalanobis_metric.get_matrix_as_np_array())
+            self.optimize_metric()
+
+            # Cache the learned metric
+            if metricFile:
+                f = open(metricFile, "wb")
+                met = pickle.dump(self.mahalanobis_metric.distance_metric, f)
+                f.close()
+
         self.tree = BallTree(
           self.database,
           metric="mahalanobis",
@@ -436,7 +465,9 @@ class Stitching(Domain):
                 return (self.database[i], distances_array[0][index])
         if k < 1000 and k < len(self.database):
             return self._getClosest(state, a, k=k*10)
-        raise Exception("There were no valid points within {} points".format(k))
+        raise Exception("There were no valid points within "\
+        "{} points in a database of {} points. This failure occured when "\
+        "attempting to generate rollout set {}".format(k, len(self.database), self.rolloutSetCounter))
 
     prng_for_policy = np.random.RandomState(0)
     def random_policy(self, s, actions):

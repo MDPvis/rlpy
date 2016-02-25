@@ -46,13 +46,14 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    x_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
+    bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
+    x_bench = bench.benchmark_variable(synthesized_rollouts, "x")
     assert x_bench < .2, "x is not synthesized within tolerance, current: %f" % x_bench
-    xdot_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "xdot")
+    xdot_bench = bench.benchmark_variable(synthesized_rollouts, "xdot")
     assert xdot_bench < .2, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
-    reward_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "reward")
+    reward_bench = bench.benchmark_variable(synthesized_rollouts, "reward")
     assert reward_bench < .2, "reward is not synthesized within tolerance, current: %f" % reward_bench
-    action_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "action")
+    action_bench = bench.benchmark_actions(synthesized_rollouts)
     assert action_bench < .2, "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
@@ -92,18 +93,18 @@ def test_starting_state_distribution_is_exact():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    x_bench = Benchmark.benchmark_variable(
-      true_rollouts,
+    bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
+    x_bench = bench.benchmark_variable(
       synthesized_rollouts,
       "x",
       event_numbers=[0])
     
     assert x_bench == 0, "x is not synthesized within tolerance, current: %f" % x_bench
-    xdot_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "xdot", event_numbers=[0])
+    xdot_bench = bench.benchmark_variable(synthesized_rollouts, "xdot", event_numbers=[0])
     assert xdot_bench == 0, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
-    reward_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "reward", event_numbers=[0])
+    reward_bench = bench.benchmark_variable(synthesized_rollouts, "reward", event_numbers=[0])
     assert reward_bench == 0, "reward is not synthesized within tolerance, current: %f" % reward_bench
-    action_bench = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "action", event_numbers=[0])
+    action_bench = bench.benchmark_actions(synthesized_rollouts, event_numbers=[0])
     assert action_bench == 0, "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
@@ -142,8 +143,9 @@ def test_consistency_in_random_numbers():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    first_benchmark = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
-    repeated_first_benchmark = Benchmark.benchmark_variable(true_rollouts, synthesized_rollouts, "x")
+    bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
+    first_benchmark = bench.benchmark_variable(synthesized_rollouts, "x")
+    repeated_first_benchmark = bench.benchmark_variable(synthesized_rollouts, "x")
     assert first_benchmark == repeated_first_benchmark, "Repeated application of benchmark gave different results"
 
     mountaincar = domain_mountain_car(noise)
@@ -164,8 +166,7 @@ def test_consistency_in_random_numbers():
       horizon,
       policies=[policy],
       domain=synthesis_domain)
-    second_benchmark = Benchmark.benchmark_variable(
-      true_rollouts,
+    second_benchmark = bench.benchmark_variable(
       synthesized_rollouts,
       "x")
     assert first_benchmark == second_benchmark, "Repeated generation of rollouts produced different benchmarks"
@@ -206,11 +207,12 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
     matrix_variable_count=5
     mahalanobis_distance = MahalanobisDistance(matrix_variable_count, synthesis_domain, target_rollouts)
     matrix_metric = mahalanobis_distance.get_matrix_as_np_array()
+    bench = Benchmark(target_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     for bench_count in [45,50,70,100]:
         current_loss = MahalanobisDistance.loss(
           MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric)),
           synthesis_domain,
-          target_rollouts,
+          bench,
           benchmark_rollout_count=bench_count)
         assert prior_loss < current_loss, "Curent loss ({}) did not degenerate from prior loss ({})".format(current_loss, prior_loss)
         prior_loss = current_loss
@@ -218,7 +220,7 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
 
 def test_stitching_distance():
     """
-    The stitching distance should equal the flipping of the action value.
+    The stitching distance should not change from this value, where all the cost is in the action flip.
     """
     number_rollouts = 2
     horizon = 100
@@ -247,4 +249,4 @@ def test_stitching_distance():
       policies=[policy2],
       domain=synthesis_domain)
 
-    assert synthesis_domain.totalStitchingDistance < 283, "Stitching distance increased to: {}".format(synthesis_domain.totalStitchingDistance)
+    assert synthesis_domain.totalStitchingDistance < 2060, "Stitching distance increased to: {}".format(synthesis_domain.totalStitchingDistance)

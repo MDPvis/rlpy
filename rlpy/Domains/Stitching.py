@@ -56,9 +56,10 @@ class MahalanobisDistance(object):
                     for event in rollout:
                         total += event[variable]
                         count += 1.
-                average = abs(total/count)
-                rooted = math.sqrt(1./average)
-                self.distance_metric[idx][idx] = rooted
+                if total != 0:
+                    average = abs(total/count)
+                    rooted = math.sqrt(1./average)
+                    self.distance_metric[idx][idx] = rooted
 
         self.benchmark = Benchmark(target_rollouts, self.stitching.action_count, seed=0)
 
@@ -185,11 +186,10 @@ class MahalanobisDistance(object):
           domain=stitching)
 
         total_benchmark = 0
-        quantiles = [0,10,20,30,40,50,60,70,80,90,100]
         for label in stitching.labels + ["reward"]:
-            bench = benchmark.benchmark_variable(synthesized_rollouts, label, quantiles=quantiles)
+            bench = benchmark.benchmark_variable(synthesized_rollouts, label)
             total_benchmark += bench
-        action_benchmark = len(quantiles) * benchmark.benchmark_actions(synthesized_rollouts)
+        action_benchmark = benchmark.benchmark_actions(synthesized_rollouts)
         total_benchmark += action_benchmark
         stitching.tree = old_tree
 

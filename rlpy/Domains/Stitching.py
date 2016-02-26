@@ -352,7 +352,7 @@ class Stitching(Domain):
         # http://docs.scipy.org/doc/scipy-0.15.1/reference/generated/scipy.spatial.KDTree.html
         sys.setrecursionlimit(10000)
         if database:
-            database = self.database
+            self.database = database
         else:
             self._populateDatabase()
 
@@ -413,7 +413,7 @@ class Stitching(Domain):
 
     def _populateDatabase(self):
         """
-        Load many transitions into the database then create the KD-Tree.
+        Load many transitions into the database then create the ball tree.
         """
         for policy in self.databasePolicies:
             for rolloutNumber in range(self.rolloutCount):

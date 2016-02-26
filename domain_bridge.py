@@ -191,7 +191,10 @@ def gridworldRollouts(query):
     metricFile = None
     labels = ["x", "y"]
     if query["transition"]["Metric Version"] != 0:
-        metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
+        directory = "../rlpy/Domains/StitchingPackage/metrics/gridworld/"
+        metricFile =  directory + str(query["transition"]["Metric Version"])
+        if not os.path.exists(directory):
+            os.makedirs(directory)
     if int(query["transition"]["Use Synthesis"]) != 0:
         domain = domain_stitching(gridworld, rolloutCount=database_rollouts, horizon=database_horizon, metricFile=metricFile, labels=labels)
     return generateRollouts(domain, labels, number_rollouts, horizon)
@@ -215,7 +218,10 @@ def mountainCarRollouts(query):
 
     metricFile = None
     if query["transition"]["Metric Version"] != 0:
-        metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
+        directory = "../rlpy/Domains/StitchingPackage/metrics/mountaincar/"
+        metricFile =  directory + str(query["transition"]["Metric Version"])
+        if not os.path.exists(directory):
+            os.makedirs(directory)
 
     policyNumber = int(query["policy"]["Policy Identifier"])
 
@@ -248,7 +254,10 @@ def helicopterRollouts(query):
    noise = query["transition"]["noise"]
    metricFile = None
    if query["transition"]["Metric Version"] != 0:
-       metricFile = "../rlpy/Domains/StitchingPackage/metrics/" + str(query["transition"]["Metric Version"])
+       directory = "../rlpy/Domains/StitchingPackage/metrics/helicopter/"
+       metricFile =  directory + str(query["transition"]["Metric Version"])
+       if not os.path.exists(directory):
+           os.makedirs(directory)
    helicopter = domain_helicopter(noise, discount)
    domain = helicopter
    if int(query["transition"]["Use Synthesis"]) != 0:

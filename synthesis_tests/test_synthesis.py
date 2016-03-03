@@ -39,12 +39,12 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=mountaincar)
     synthesized_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=synthesis_domain)
     bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     x_bench = bench.benchmark_variable(synthesized_rollouts, "x")
@@ -86,12 +86,12 @@ def test_starting_state_distribution_is_exact():
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=mountaincar)
     synthesized_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=synthesis_domain)
     bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     x_bench = bench.benchmark_variable(
@@ -136,12 +136,12 @@ def test_consistency_in_random_numbers():
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=mountaincar)
     synthesized_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=synthesis_domain)
     bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     first_benchmark = bench.benchmark_variable(synthesized_rollouts, "x")
@@ -159,12 +159,12 @@ def test_consistency_in_random_numbers():
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=mountaincar)
     synthesized_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy],
+      policy=policy,
       domain=synthesis_domain)
     second_benchmark = bench.benchmark_variable(
       synthesized_rollouts,
@@ -199,20 +199,24 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
       databasePolicies=[generating_policy],
       seed = 0)
 
+    matrix_variable_count=5
+    mahalanobis_distance = MahalanobisDistance(
+        matrix_variable_count,
+        synthesis_domain,
+        target_policies=[target_policy])
+
+    matrix_metric = mahalanobis_distance.get_matrix_as_np_array()
     target_rollouts = synthesis_domain.getRollouts(
       target_rollout_count,
       target_horizon,
-      policies=[target_policy],
+      policy=target_policy,
       domain=target_domain)
-    matrix_variable_count=5
-    mahalanobis_distance = MahalanobisDistance(matrix_variable_count, synthesis_domain, target_rollouts)
-    matrix_metric = mahalanobis_distance.get_matrix_as_np_array()
     bench = Benchmark(target_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     for bench_count in [45,50,70,100]:
         current_loss = MahalanobisDistance.loss(
           MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric)),
           synthesis_domain,
-          bench,
+          [bench],
           benchmark_rollout_count=bench_count)
         assert prior_loss < current_loss, "Curent loss ({}) did not degenerate from prior loss ({})".format(current_loss, prior_loss)
         prior_loss = current_loss
@@ -246,7 +250,7 @@ def test_stitching_distance():
     synthesized_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
-      policies=[policy2],
+      policy=policy2,
       domain=synthesis_domain)
 
     assert synthesis_domain.totalStitchingDistance < 2060, "Stitching distance increased to: {}".format(synthesis_domain.totalStitchingDistance)

@@ -31,7 +31,12 @@ class MahalanobisDistance(object):
     distance metric so that the objective function is minimized
     http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
     """
-    def __init__(self, var_count, stitching, target_rollouts, normalize_starting_metric=True, cached_metric=None):
+    def __init__(self,
+        var_count,
+        stitching,
+        target_policies=[],
+        normalize_starting_metric=True,
+        cached_metric=None):
         """
         :param var_count: The number of variables in the distance metric.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
@@ -44,24 +49,38 @@ class MahalanobisDistance(object):
             self.distance_metric = cached_metric
             return
 
-
         self.distance_metric = np.identity(var_count)
         self.stitching = stitching
-        self.target_rollouts = target_rollouts
+
+        self.target_policies = target_policies
+
+        self.target_rollouts = []
+        for policy in self.target_policies:
+            t = self.stitching.getRollouts(
+                  count=self.stitching.targetPoliciesRolloutCount,
+                  horizon=self.stitching.horizon,
+                  policy=policy,
+                  domain=self.stitching.domain)
+            self.target_rollouts.append(t)
+
         if normalize_starting_metric:
             for idx, variable in enumerate(stitching.labels):
                 total = 0.
                 count = 0.
-                for rollout in target_rollouts:
-                    for event in rollout:
-                        total += event[variable]
-                        count += 1.
+                for rollout_set in self.target_rollouts:
+                    for rollout in rollout_set:
+                        for event in rollout:
+                            total += event[variable]
+                            count += 1.
                 if total != 0:
                     average = abs(total/count)
                     rooted = math.sqrt(1./average)
                     self.distance_metric[idx][idx] = rooted
 
-        self.benchmark = Benchmark(target_rollouts, self.stitching.action_count, seed=0)
+        self.benchmarks = []
+        for idx, rollouts in enumerate(self.target_rollouts):
+            benchmark = Benchmark(rollouts, self.stitching.action_count, seed=0)
+            self.benchmarks.append(benchmark)
 
         # The Powell optimizer needs a non-zero value to find the emprical gradient in log space
         for idx, row in enumerate(self.distance_metric):
@@ -158,15 +177,15 @@ class MahalanobisDistance(object):
     @staticmethod
     def loss(flat_metric,
              stitching,
-             benchmark,
+             benchmarks,
              self=None,
-             benchmark_rollout_count=10):# todo: change this back to 50
+             benchmark_rollout_count=50):
         """
         The function we are trying to minimize when updating the distance metric.
         :param flat_metric: The metric represented as a list of values. This will be converted to
           a matrix when computing distances.
         :param stitching: The Stitching class whose distance metric we are attempting to update.
-        :param benchmark: An instance of the Benchmark class.
+        :param benchmarks: Instances of the Benchmark class.
         :param self: A hack to make this staticmethod behave more like the MahalanobisDistance class.
           Loss needs to be a static method for the minimization library, but we can still pass in
           the MahalanobisDistance object as self.
@@ -175,22 +194,26 @@ class MahalanobisDistance(object):
         matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(flat_metric))
         stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
 
+        total_benchmark = 0
+
         # Benchmark against the horizon and target policies of the stitching domain
         rolloutCount = min(stitching.rolloutCount, benchmark_rollout_count)
         horizon = stitching.horizon
         policies = stitching.targetPolicies
-        synthesized_rollouts = stitching.getRollouts(
-          count=rolloutCount,
-          horizon=horizon,
-          policies=policies,
-          domain=stitching)
-
-        total_benchmark = 0
-        for label in stitching.labels + ["reward"]:
-            bench = benchmark.benchmark_variable(synthesized_rollouts, label)
-            total_benchmark += bench
-        action_benchmark = benchmark.benchmark_actions(synthesized_rollouts)
-        total_benchmark += action_benchmark
+        for idx, policy in enumerate(policies):
+            benchmark = benchmarks[idx]
+            current_benchmark = 0.0
+            synthesized_rollouts = stitching.getRollouts(
+              count=rolloutCount,
+              horizon=horizon,
+              policy=policy,
+              domain=stitching)
+            for label in stitching.labels + ["reward"]:
+                variable_benchmark = benchmark.benchmark_variable(synthesized_rollouts, label)
+                current_benchmark += variable_benchmark
+            action_benchmark = benchmark.benchmark_actions(synthesized_rollouts)
+            current_benchmark += action_benchmark
+            total_benchmark += math.pow(current_benchmark, 2) # Square the loss from this policy
         stitching.tree = old_tree
 
         return total_benchmark
@@ -212,27 +235,36 @@ class MahalanobisDistance(object):
         inverse_exponentiated = MahalanobisDistance.ceiling_logarithm(
           MahalanobisDistance.flatten(self.distance_metric))
 
-        def print_loss(vec):
+        # todo: investigate whether saving in this manner is necessary by removing
+        # the save and running the tests
+        def print_and_save(vec):
+            loss = MahalanobisDistance.loss(
+                vec,
+                self.stitching, self.benchmarks, self)
             print "==Optimization iteration complete=="
             print vec
             print "LOSS:"
-            print MahalanobisDistance.loss(
-                vec,
-                self.stitching, self.benchmark, self)
+            print loss
+            if loss < print_and_save.best_loss:
+                print_and_save.best_loss = loss
+                print_and_save.best_parameters = vec
+
+        print_and_save.best_loss = float("Inf")
+        print_and_save.best_parameters = []
 
         res = minimize(
           MahalanobisDistance.loss,
           inverse_exponentiated,
-          args=(self.stitching, self.benchmark, self),
+          args=(self.stitching, self.benchmarks, self),
           method="Powell",
           tol=.000000001,
           options={"disp": True},
-          callback=print_loss)
+          callback=print_and_save)
 
         print res
 
         # The result was flattened, need to make square
-        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(res.x))
+        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(print_and_save.best_parameters))
 
         assert MahalanobisDistance.is_psd(matrix)
         self.distance_metric = matrix
@@ -302,7 +334,8 @@ class Stitching(Domain):
       seed = None,
       database = None,
       labels = ["x", "xdot"], # default to the MountainCar domain
-      metricFile = None
+      metricFile = None,
+      optimizeMetric = True
     ):
         """
         :param domain: The domain used to generate MC rollouts
@@ -359,32 +392,26 @@ class Stitching(Domain):
         # Check the cache for the metric file
         if metricFile and os.path.isfile(metricFile):
             print "Using cached metric, delete file or change metric version to optimize a new one"
+            if optimizeMetric:
+                print "WARNING: You loaded a pre-existing metric that will not be optimized"
             f = open(metricFile, "r")
             met = pickle.load(f)
             self.mahalanobis_metric = MahalanobisDistance(None, None, None, cached_metric=met)
             f.close()
         else:
 
-            # todo: this would be better put in the MahalanobisDistance class since it is only used for
-            # optimizing the metric.
-            target_rollouts = self.getRollouts(
-                  count=self.targetPoliciesRolloutCount,
-                  horizon=self.horizon,
-                  policies=self.targetPolicies,
-                  domain=self.domain)
-
             # Count the total number of state variables and discrete actions
-            metric_size = self.action_count
-            for key in target_rollouts[0][0]:
-                if key != "action" and key != "reward":
-                    metric_size += 1
+            metric_size = self.action_count + len(self.labels)  # actions and state variables
 
-            self.mahalanobis_metric = MahalanobisDistance(metric_size, self, target_rollouts)
+            self.mahalanobis_metric = MahalanobisDistance(metric_size, self, self.targetPolicies)
+
             self.tree = BallTree(
               self.database,
               metric="mahalanobis",
               VI=self.mahalanobis_metric.get_matrix_as_np_array())
-            self.optimize_metric()
+
+            if optimizeMetric:
+                self.optimize_metric()
 
             # Cache the learned metric
             if metricFile:
@@ -474,7 +501,7 @@ class Stitching(Domain):
         """Default to a random action selection"""
         return prng_for_policy.choice(actions)
 
-    def getRollouts(self, count=10, horizon=10, policies=None, domain=None):
+    def getRollouts(self, count=10, horizon=10, policy=None, domain=None):
         """
             Helper function for generating rollouts from all the domains.
             Args:
@@ -483,8 +510,8 @@ class Stitching(Domain):
                 policy (function(state, actions)): The function used to select an action.
                 domain (Domain): The domain that will be called to generate rollouts.
         """
-        if not policies:
-            policy = [self.random_policy]
+        if not policy:
+            policy = self.random_policy
         if not domain:
             domain = self
 
@@ -493,25 +520,24 @@ class Stitching(Domain):
         self.totalStitchingDistance = 0
 
         rollouts = []
-        for policy in policies:
-            for rollout_number in range(count):
-                rollout = []
-                domain.s0() # reset the state
-                while not domain.isTerminal() and len(rollout) < horizon:
-                    possible_actions = domain.possibleActions()
-                    action = policy(domain.state, possible_actions)
-                    state = {}
-                    for i in range(len(self.labels)):
-                        state[self.labels[i]] = domain.state[i]
-                    state["action"] = action
-                    r, ns, terminal, currentPossibleActions = domain.step(action)
-                    state["reward"] = r
+        for rollout_number in range(count):
+            rollout = []
+            domain.s0() # reset the state
+            while not domain.isTerminal() and len(rollout) < horizon:
+                possible_actions = domain.possibleActions()
+                action = policy(domain.state, possible_actions)
+                state = {}
+                for i in range(len(self.labels)):
+                    state[self.labels[i]] = domain.state[i]
+                state["action"] = action
+                r, ns, terminal, currentPossibleActions = domain.step(action)
+                state["reward"] = r
 
-                    # record stitching distance
-                    if type(domain).__name__ == "Stitching":
-                        self.totalStitchingDistance += self.lastStitchDistance
-                    rollout.append(state)
-                rollouts.append(rollout)
+                # record stitching distance
+                if type(domain).__name__ == "Stitching":
+                    self.totalStitchingDistance += self.lastStitchDistance
+                rollout.append(state)
+            rollouts.append(rollout)
         return rollouts
 
     def possibleActions(self):

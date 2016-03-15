@@ -152,13 +152,15 @@ def generateRollouts(domain, labels, count, horizon, policy=randomPolicy):
     # Need to use the getRollouts function defined in the Stitching class because
     # it ensures transitions are drawn from the database without replacement
     if domain.__class__.__name__ == "Stitching":
-        return domain.getRollouts(count=count, horizon=horizon, policies=[policy])
+        return domain.getRollouts(count=count, horizon=horizon, policy=policy)
 
     rollouts = []
     for rollout_number in range(count):
         rollout = []
         domain.s0() # reset the state
-        while not domain.isTerminal() and len(rollout) < horizon:
+        terminate = False
+        while not terminate and len(rollout) < horizon:
+            terminate = domain.isTerminal()
             possible_actions = domain.possibleActions()
             action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
             state = {}
@@ -219,7 +221,7 @@ def mountainCarRollouts(query):
     metricFile = None
     if query["transition"]["Metric Version"] != 0:
         directory = "../rlpy/Domains/StitchingPackage/metrics/mountaincar/"
-        metricFile =  directory + str(query["transition"]["Metric Version"])
+        metricFile =  directory + str(int(query["transition"]["Metric Version"]))
         if not os.path.exists(directory):
             os.makedirs(directory)
 

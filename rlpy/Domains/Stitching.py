@@ -446,7 +446,9 @@ class Stitching(Domain):
             for rolloutNumber in range(self.rolloutCount):
                 self.domain.s0() # reset the state
                 currentDepth = 0
-                while not self.domain.isTerminal() and currentDepth < self.horizon:
+                terminating = False
+                while not terminating and currentDepth < self.horizon:
+                    terminating = self.domain.isTerminal()
                     state = self.domain.state
                     possible_actions = self.domain.possibleActions()
                     action = policy(state, possible_actions)
@@ -523,7 +525,9 @@ class Stitching(Domain):
         for rollout_number in range(count):
             rollout = []
             domain.s0() # reset the state
-            while not domain.isTerminal() and len(rollout) < horizon:
+            terminate = False
+            while not terminate and len(rollout) < horizon:
+                terminate = domain.isTerminal()
                 possible_actions = domain.possibleActions()
                 action = policy(domain.state, possible_actions)
                 state = {}

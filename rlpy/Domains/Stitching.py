@@ -45,11 +45,12 @@ class MahalanobisDistance(object):
         :param normalize_starting_metric: Determines whether we scale the metric by the magnitude of the variable's mean.
         :param cached_metric: A pre-computed metric, probably loaded from a file.
         """
-        if cached_metric:
+        if not (cached_metric is None):
             self.distance_metric = cached_metric
-            return
+            #return # todo, am I supposed to remove this?
+        else:
+            self.distance_metric = np.identity(var_count)
 
-        self.distance_metric = np.identity(var_count)
         self.stitching = stitching
 
         self.target_policies = target_policies
@@ -65,17 +66,15 @@ class MahalanobisDistance(object):
 
         if normalize_starting_metric:
             for idx, variable in enumerate(stitching.labels):
-                total = 0.
-                count = 0.
+                l = []
                 for rollout_set in self.target_rollouts:
                     for rollout in rollout_set:
                         for event in rollout:
-                            total += event[variable]
-                            count += 1.
-                if total != 0:
-                    average = abs(total/count)
-                    rooted = math.sqrt(1./average)
-                    self.distance_metric[idx][idx] = rooted
+                            l.append(event[variable])
+                variance = Benchmark.variance(l)
+                if variance == 0:
+                    variance = 1.0
+                self.distance_metric[idx][idx] = 1.0/variance
 
         self.benchmarks = []
         for idx, rollouts in enumerate(self.target_rollouts):
@@ -178,7 +177,6 @@ class MahalanobisDistance(object):
     def loss(flat_metric,
              stitching,
              benchmarks,
-             self=None,
              benchmark_rollout_count=50):
         """
         The function we are trying to minimize when updating the distance metric.
@@ -333,7 +331,7 @@ class Stitching(Domain):
       stitchingToleranceCumulative = .1,
       seed = None,
       database = None,
-      labels = ["x", "xdot"], # default to the MountainCar domain
+      labels = None, # default to the MountainCar domain
       metricFile = None,
       optimizeMetric = True
     ):
@@ -389,6 +387,9 @@ class Stitching(Domain):
         else:
             self._populateDatabase()
 
+        # Count the total number of state variables and discrete actions
+        metric_size = self.action_count + len(self.labels)  # actions and state variables
+
         # Check the cache for the metric file
         if metricFile and os.path.isfile(metricFile):
             print "Using cached metric, delete file or change metric version to optimize a new one"
@@ -396,12 +397,15 @@ class Stitching(Domain):
                 print "WARNING: You loaded a pre-existing metric that will not be optimized"
             f = open(metricFile, "r")
             met = pickle.load(f)
-            self.mahalanobis_metric = MahalanobisDistance(None, None, None, cached_metric=met)
+            self.mahalanobis_metric = MahalanobisDistance(
+                metric_size,
+                self,
+                target_policies=self.targetPolicies,
+                normalize_starting_metric=False,
+                cached_metric=met
+            )
             f.close()
         else:
-
-            # Count the total number of state variables and discrete actions
-            metric_size = self.action_count + len(self.labels)  # actions and state variables
 
             self.mahalanobis_metric = MahalanobisDistance(metric_size, self, self.targetPolicies)
 
@@ -469,6 +473,7 @@ class Stitching(Domain):
                     self.database.append(t)
                     currentDepth += 1
 
+
     def _getClosest(self, state, a, k=1):
         """
         returns (at random) one of the closest k point from the KD tree.
@@ -492,7 +497,7 @@ class Stitching(Domain):
             if self.database[i].last_accessed_iteration != self.rolloutSetCounter:
                 self.database[i].last_accessed_iteration = self.rolloutSetCounter
                 return (self.database[i], distances_array[0][index])
-        if k < 1000 and k < len(self.database):
+        if k < 10000 and k < len(self.database):
             return self._getClosest(state, a, k=k*10)
         raise Exception("There were no valid points within "\
         "{} points in a database of {} points. This failure occured when "\

@@ -11,6 +11,7 @@ from rlpy.Domains import Stitching as domain_stitching
 from rlpy.Domains import HIVTreatment as domain_hiv
 import numpy as np
 import os
+import pickle
 
 print "Loaded HIV Domain"
 
@@ -117,8 +118,6 @@ def hivRollouts(query):
     if query["transition"]["Metric Version"] != 0:
         directory = "../rlpy/Domains/StitchingPackage/metrics/hiv/"
         metricFile =  directory + str(int(query["transition"]["Metric Version"]))
-        if not os.path.exists(directory):
-            os.makedirs(directory)
         if os.path.isfile(metricFile):
             optimizeMetric = False
             print "loading metric from file: {}".format(metricFile)
@@ -174,15 +173,32 @@ def hivRollouts(query):
     targetPolicies.append(hiv_factory(policyProbabilityRTI, policyProbabilityPI))
 
     if int(query["transition"]["Use Synthesis"]) != 0:
+        stitching_database = None
+        database_cache_name = "{}-{}".format(database_rollouts, database_horizon)
+        database_cache_path = "../rlpy/Domains/StitchingPackage/databases/hiv/" + database_cache_name
+        save_database = False
+        if os.path.isfile(database_cache_path):
+            f = open(database_cache_path, 'r')
+            stitching_database = pickle.load(f)
+            f.close()
+            print "loaded database from pickled file"
+            save_database = True
+
         domain = domain_stitching(
             hiv,
             labels=["t1", "t1infected", "t2", "t2infected", "v", "e"],
+            database=stitching_database,
             rolloutCount=database_rollouts,
-            targetPoliciesRolloutCount=50,
+            targetPoliciesRolloutCount=1, # todo, this is probably not necessary
             horizon=database_horizon,
             databasePolicies=databasePolicies,
             metricFile=metricFile,
             optimizeMetric=optimizeMetric)
+        if save_database:
+            print "saving database to: " + database_cache_path
+            f = open(database_cache_path, 'w')
+            pickle.dump(domain.database, f)
+            f.close()
     print "generating rollouts now"
     return generateRollouts(
         domain,

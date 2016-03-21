@@ -525,6 +525,9 @@ class Stitching(Domain):
         self.rolloutSetCounter += 1
 
         self.totalStitchingDistance = 0
+        self.totalNonZeroStitches = 0
+
+        totalTransitions = 0
 
         rollouts = []
         for rollout_number in range(count):
@@ -542,11 +545,14 @@ class Stitching(Domain):
                 r, ns, terminal, currentPossibleActions = domain.step(action)
                 state["reward"] = r
 
-                # record stitching distance
-                if type(domain).__name__ == "Stitching":
+                # record stitching distances
+                totalTransitions += 1
+                if type(domain).__name__ == "Stitching" and self.lastStitchDistance > 0:
                     self.totalStitchingDistance += self.lastStitchDistance
+                    self.totalNonZeroStitches += 1
                 rollout.append(state)
             rollouts.append(rollout)
+        print "Returning rollouts with {} lossy stitched transitions for {} total transitions".format(self.totalNonZeroStitches, totalTransitions)
         return rollouts
 
     def possibleActions(self):

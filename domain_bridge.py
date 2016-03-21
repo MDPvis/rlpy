@@ -11,10 +11,20 @@ from rlpy.Domains import GridWorld as domain_gridworld
 from rlpy.Domains import MountainCar as domain_mountain_car
 from rlpy.Domains import HelicopterHover as domain_helicopter
 from rlpy.Domains import Stitching as domain_stitching
+from rlpy.Domains import HIVTreatment as domain_hiv
 import numpy as np
+import sys
 import os
-import random
-from flask_server import domain
+
+# Specify which domain should be selected from the domain bridge.
+# This is an optional argument that is used for domain_bridges that sit
+# atop a collection of MDP domains. You should leave this as the
+# empty string unless you must select between domains.
+domain = ""
+if len(sys.argv) > 1:
+    domain = sys.argv[1]
+
+print domain
 
 ###################################
 #  Domain Initialization Objects  #
@@ -90,9 +100,9 @@ mountainCarInitialization = {
                              "current_value": 100, "max": 10000, "min": 1, "units": ""}
                             ],
                "policy": [
-                           {"name": "Policy Identifier",
+                           {"name": "Policy Probability",
                             "description":"An integer identier of the current policy to always sample. -1 for random, 0 for always right, 2 for always left",
-                            "current_value": -1, "max": 99999, "min":-1, "units": " "}
+                            "current_value": 0.875, "max": 1, "min":.5, "units": " "}
                          ]
            }
 helicopterInitialization = {
@@ -130,6 +140,44 @@ helicopterInitialization = {
                            "current_value": 0, "max": 99999, "min":0, "units": " "}
                         ]
           }
+hivInitialization = {
+    "reward": [
+        {"name": "use defaults",
+         "description":"You cannot change the rewards",
+         "current_value": 1, "max": 1, "min": 1, "units": ""}
+    ],
+    "transition": [
+        {"name": "Use Synthesis",
+         "description": "Non-zero values are true.",
+         "current_value": 0, "max": 1, "min": 0, "units": ""},
+        {"name": "Metric Version",
+         "description": "If synthesis is active, this will either optimize a new distance metric and cache it to metrics/VERSION, or load a pre-existing metric from the cache.",
+         "current_value": 0, "max": 1000, "min": 0, "units": ""},
+        {"name": "noise",
+         "description": "Probability of a random transition from an action.",
+         "current_value": .01, "max": 1, "min": 0, "units": ""},
+        {"name": "rollouts in database",
+         "description": "Number of rollouts to draw from in the database.",
+         "current_value": 1000, "max": 10000, "min": 10, "units": ""},
+        {"name": "database rollouts horizon",
+         "description": "How far into the future the database samples should go.",
+         "current_value": 100, "max": 10000, "min": 5, "units": ""},
+        {"name": "rollout count",
+         "description": "Number of rollouts to generate.",
+         "current_value": 10, "max": 10000, "min": 1, "units": ""},
+        {"name": "horizon",
+         "description": "Maximum number of transitions.",
+         "current_value": 100, "max": 10000, "min": 1, "units": ""}
+    ],
+    "policy": [
+        {"name": "Policy Probability RTI",
+         "description":"The probability of administering RTI",
+         "current_value": .4, "max": 1.0, "min":0.0, "units": " "},
+        {"name": "Policy Probability PI",
+         "description":"The probability of administering PI",
+         "current_value": .4, "max": 1.0, "min":0.0, "units": " "}
+    ]
+}
 
 ##################################
 #         Get Rollouts           #
@@ -162,7 +210,7 @@ def generateRollouts(domain, labels, count, horizon, policy=randomPolicy):
         while not terminate and len(rollout) < horizon:
             terminate = domain.isTerminal()
             possible_actions = domain.possibleActions()
-            action = policy(domain.state, possible_actions) # todo, make better, make this an actual policy
+            action = policy(domain.state, possible_actions)
             state = {}
             for i in range(len(labels)):
                 state[labels[i]] = domain.state[i]
@@ -219,25 +267,154 @@ def mountainCarRollouts(query):
     domain = mountaincar
 
     metricFile = None
+    optimizeMetric = True
     if query["transition"]["Metric Version"] != 0:
         directory = "../rlpy/Domains/StitchingPackage/metrics/mountaincar/"
         metricFile =  directory + str(int(query["transition"]["Metric Version"]))
         if not os.path.exists(directory):
             os.makedirs(directory)
+        if os.path.isfile(metricFile):
+            optimizeMetric = False
 
-    policyNumber = int(query["policy"]["Policy Identifier"])
+    databasePolicies = []
+    targetPolicies = []
 
-    def policy(state, possibleActions):
-        return possibleActions[policyNumber]
+    def mountaincar_factory(reinforce_threshold):
+        rs = np.random.RandomState(0)
+        def policy_reinforce(state, possibleActions, reinforce_threshold=reinforce_threshold, rs=rs):
+            uni = rs.uniform(0,1)
+            reinforce = uni < reinforce_threshold
+            x = state[0]
+            xdot = state[1]
+            if not reinforce:
+                return rs.choice(possibleActions)
+            elif xdot > 0.0:
+                return 2 # Right
+            elif xdot == 0.0:
+                return rs.choice(possibleActions)
+            else:
+                return 0 # Left
+        return policy_reinforce
+
+    databasePolicies.append(mountaincar_factory(1.0))
+    databasePolicies.append(mountaincar_factory(0.75))
+    databasePolicies.append(mountaincar_factory(0.5))
+
+    # Defaults to 0.875 at initialization
+    policyProbability = float(query["policy"]["Policy Probability"])
+    targetPolicies.append(policyProbability)
 
     if int(query["transition"]["Use Synthesis"]) != 0:
         domain = domain_stitching(
           mountaincar,
           rolloutCount=database_rollouts,
+          targetPoliciesRolloutCount=50,
           horizon=database_horizon,
-          databasePolicies=[policy],
-          metricFile=metricFile)
-    return generateRollouts(domain, ["x", "xdot"], number_rollouts, horizon, policy = policy)
+          databasePolicies=databasePolicies,
+          metricFile=metricFile,
+          optimizeMetric=optimizeMetric)
+    print "generating rollouts now"
+    return generateRollouts(
+        domain,
+        ["x", "xdot"],
+        number_rollouts,
+        horizon,
+        policy=targetPolicies[0])
+
+def hivRollouts(query):
+    """
+       Get rollouts for the hiv domain.
+       Args:
+           query (dictionary): The parameters as post-processed by flask_server.py.
+               All numbers will be floats, so you should convert them to integers
+               as necessary. Expected dictionary keys are found in the
+               mountaincarInitialization object.
+    """
+    number_rollouts = int(query["transition"]["rollout count"])
+    horizon = int(query["transition"]["horizon"])
+    database_rollouts = int(query["transition"]["rollouts in database"])
+    database_horizon = int(query["transition"]["database rollouts horizon"])
+    noise = query["transition"]["noise"]
+    hiv = domain_hiv()
+    domain = hiv
+
+    metricFile = None
+    optimizeMetric = True
+    if query["transition"]["Metric Version"] != 0:
+        directory = "rlpy/Domains/StitchingPackage/metrics/hiv/"
+        metricFile =  directory + str(int(query["transition"]["Metric Version"]))
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        if os.path.isfile(metricFile):
+            optimizeMetric = False
+            print "loading metric from file: {}".format(metricFile)
+        else:
+            print "WARNING: Metric is optimizing to: {}".format(metricFile)
+
+    def hiv_factory(rti_probability, pi_probability):
+        rs = np.random.RandomState(0)
+        def policy_reinforce(state, possibleActions, rti_probability=rti_probability, pi_probability=pi_probability, rs=rs):
+            uni = rs.uniform(0,1)
+            rti = uni < rti_probability
+            uni = rs.uniform(0,1)
+            pi = uni < pi_probability
+            t1 = state[0] # non-infected CD4+ T-lymphocytes [cells / ml]
+            t1infected = state[1] # infected CD4+ T-lymphocytes [cells / ml]
+            t2 = state[2] # non-infected macrophages [cells / ml]
+            t2infected = state[3] # infected macrophages [cells / ml]
+            v = state[4] # number of free HI viruses [copies / ml]
+            e = state[5] # number of cytotoxic T-lymphocytes [cells / ml]
+
+            spiking = (t1infected > 100 or v > 20000)
+
+            if spiking:
+                rti = True
+                pi = True
+
+            # Actions
+            # *0*: none active
+            # *1*: RTI active
+            # *2*: PI active
+            # *3*: RTI and PI active
+
+            if rti and pi:
+                return 3
+            elif rti:
+                return 1
+            elif pi:
+                return 2
+            else:
+                return 0
+        return policy_reinforce
+
+    databaseProbabilities = [0, .25, 1]
+    databasePolicies = []
+    for prob1 in databaseProbabilities:
+        for prob2 in databaseProbabilities:
+            databasePolicies.append(hiv_factory(prob1, prob2))
+
+    # Defaults to 0.4 at initialization
+    policyProbabilityRTI = float(query["policy"]["Policy Probability RTI"])
+    policyProbabilityPI = float(query["policy"]["Policy Probability PI"])
+    targetPolicies = []
+    targetPolicies.append(hiv_factory(policyProbabilityRTI, policyProbabilityPI))
+
+    if int(query["transition"]["Use Synthesis"]) != 0:
+        domain = domain_stitching(
+            hiv,
+            rolloutCount=database_rollouts,
+            targetPoliciesRolloutCount=50,
+            horizon=database_horizon,
+            databasePolicies=databasePolicies,
+            metricFile=metricFile,
+            optimizeMetric=optimizeMetric)
+    print "generating rollouts now"
+    return generateRollouts(
+        domain,
+        ["t1", "t1infected", "t2", "t2infected", "v", "e"],
+        number_rollouts,
+        horizon,
+        policy=targetPolicies[0])
 
 def helicopterRollouts(query):
    """
@@ -286,6 +463,8 @@ def initialize():
         return mountainCarInitialization
     elif domain == "helicopter":
         return helicopterInitialization
+    elif domain == "hiv":
+        return hivInitialization
     else:
         return gridworldInitialization
 
@@ -307,6 +486,8 @@ def rollouts(query):
         rollouts = mountainCarRollouts(query)
     elif domain == "helicopter":
         rollouts = helicopterRollouts(query)
+    elif domain == "hiv":
+        rollouts = hivRollouts(query)
     else:
         rollouts = gridworldRollouts(query)
     return rollouts
@@ -343,5 +524,5 @@ def print_options():
     This domain_bridge supports multiple MDP domains. You can specify one of the options
     given below as a positional argument.
     
-    gridworld, mountaincar, helicopter
+    gridworld, mountaincar, helicopter, hiv
     """

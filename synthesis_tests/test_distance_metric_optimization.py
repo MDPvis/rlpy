@@ -487,7 +487,7 @@ def test_normalize_starting_metric():
       mock_synthesis,
       target_policies=[target_policy],
       normalize_starting_metric=True)
-    assert distance.distance_metric[0][0] == .1, "entry was {}".format(distance.distance_metric[0][0])
+    assert distance.distance_metric[0][0] == 0.0004, "entry was {}".format(distance.distance_metric[0][0])
     assert distance.distance_metric[1][1] == 1., "entry was {}".format(distance.distance_metric[1][1])
     assert distance.distance_metric[1][0] == 0., "entry was {}".format(distance.distance_metric[1][0])
     assert distance.distance_metric[0][1] == 0., "entry was {}".format(distance.distance_metric[0][1])

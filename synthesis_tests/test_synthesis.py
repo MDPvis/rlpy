@@ -212,13 +212,15 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
       policy=target_policy,
       domain=target_domain)
     bench = Benchmark(target_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
-    for bench_count in [45,50,70,100]:
+    for bench_count in [30,60,100]:
         current_loss = MahalanobisDistance.loss(
           MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric)),
           synthesis_domain,
           [bench],
           benchmark_rollout_count=bench_count)
-        assert prior_loss < current_loss, "Curent loss ({}) did not degenerate from prior loss ({})".format(current_loss, prior_loss)
+        assert prior_loss < current_loss,\
+            "Curent loss ({}) did not degenerate from prior loss ({}) for bench_count {}"\
+                .format(current_loss, prior_loss, bench_count)
         prior_loss = current_loss
 
 

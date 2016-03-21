@@ -15,3 +15,7 @@ Config.py
 .nfs*
 dist
 *.egg-info
+*policyPolicyProbability*
+.DS_Store
+rlpy/Domains/StitchingPackage/databases/hiv/*-*
+.idea

@@ -6,7 +6,7 @@ from rlpy.Domains import HIVTreatment as domain_hiv
 from rlpy.Domains import Stitching as domain_stitching
 import numpy as np
 import os
-import random
+import pickle
 
 def hiv_factory(rti_probability, pi_probability):
     rs = np.random.RandomState(0)
@@ -44,51 +44,131 @@ def hiv_factory(rti_probability, pi_probability):
             return 0
     return policy_reinforce
 
-def hiv_paper_graph(metricFile, targetProb1, targetProb2):
+databaseProbabilities = [0, .25, 1]
+databasePolicies = []
+for prob1 in databaseProbabilities:
+    for prob2 in databaseProbabilities:
+        databasePolicies.append(hiv_factory(prob1, prob2))
 
-    databaseProbabilities = [0, .25, 1]
-    databasePolicies = []
-    for prob1 in databaseProbabilities:
-        for prob2 in databaseProbabilities:
-            databasePolicies.append(hiv_factory(prob1, prob2))
+# Policies used to normalize the metric in the non-optimized case
+targetPolicies = []
+targetPolicies.append(hiv_factory(.2, .2))
+
+database_rollouts = 200
+database_horizon = 100
+targetPoliciesRolloutCount = 200
+
+#database_rollouts = 50
+#database_horizon = 5
+#targetPoliciesRolloutCount = 50
+
+database_cache_name = "{}-{}".format(database_rollouts, database_horizon)
+database_cache_path = "rlpy/Domains/StitchingPackage/databases/hiv/" + database_cache_name
+save_database = True
+stitching_database_for_optimized = None
+stitching_database_for_normalized = None
+if os.path.isfile(database_cache_path):
+    f = open(database_cache_path, 'r')
+    stitching_database_for_optimized = pickle.load(f)
+    f.close()
+    f = open(database_cache_path, 'r')
+    stitching_database_for_normalized = pickle.load(f)
+    f.close()
+    print "loaded database from pickled file"
+    save_database = False
+else:
+    print "no database fount at {}, generating database...".format(database_cache_path)
+
+# Create a stitching object
+optimized_domain = domain_hiv()
+stitching_optimized = domain_stitching(
+    optimized_domain,
+    rolloutCount = database_rollouts,
+    horizon = database_horizon,
+    databasePolicies = databasePolicies,
+    targetPolicies = targetPolicies,
+    targetPoliciesRolloutCount = targetPoliciesRolloutCount,
+    seed = 0,
+    labels = ["t1", "t1infected", "t2", "t2infected", "v", "e"],
+    optimizeMetric = False,
+    metricFile = "rlpy/Domains/StitchingPackage/metrics/hiv/300",
+    database = stitching_database_for_optimized
+)
+
+if save_database:
+    print "saving database to: " + database_cache_path
+    f = open(database_cache_path, 'w')
+    pickle.dump(stitching_normalized.database, f)
+    print "saved database, re-run script to get results"
+    exit()
+
+normalized_domain = domain_hiv()
+stitching_normalized = domain_stitching(
+    normalized_domain,
+    rolloutCount = database_rollouts,
+    horizon = database_horizon,
+    database = stitching_database_for_normalized,
+    databasePolicies = databasePolicies,
+    targetPolicies = targetPolicies,
+    targetPoliciesRolloutCount = targetPoliciesRolloutCount,
+    seed = 0,
+    labels = ["t1", "t1infected", "t2", "t2infected", "v", "e"],
+    optimizeMetric = False,
+    metricFile = None
+)
+
+def hiv_paper_graph(normalized=True, targetProb1=None, targetProb2=None):
+
+    global stitching_normalized
+    global stitching_optimized
+
+    stitching = None
+    if normalized:
+        stitching = stitching_normalized
+    else:
+        stitching = stitching_optimized
 
     targetPolicies = []
     targetPolicies.append(hiv_factory(targetProb1, targetProb2))
+    stitching.targetPolicies = targetPolicies
+    stitching.mahalanobis_metric._sampleTargetTrajectories()
 
-    domain = domain_hiv()
-
-    # Create a stitching object
-    stitching = domain_stitching(
-        domain,
-        rolloutCount = 200,
-        horizon = 50,
-        databasePolicies = databasePolicies,
-        targetPolicies = targetPolicies,
-        targetPoliciesRolloutCount = 200,
-        stitchingToleranceSingle = .1,
-        stitchingToleranceCumulative = .1,
-        seed = 0,
-        labels = ["t1", "t1infected", "t2", "t2infected", "v", "e"],
-        optimizeMetric = False,
-        metricFile = metricFile
-    )
+    flat_metric = stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric)
 
     # Sum over each benchmark and policy
     loss = stitching.mahalanobis_metric.loss(
-        stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric),
+        stitching.mahalanobis_metric.ceiling_logarithm(flat_metric),
         stitching,
         stitching.mahalanobis_metric.benchmarks,
         benchmark_rollout_count=50
     )
+
     print "{},{},{}".format(targetProb1, targetProb2, loss)
+    return loss
 
 if __name__ == "__main__":
-    targetProbabilities = [.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.]
-    targetPolicies = []
-    for prob1 in targetProbabilities:
-        for prob2 in targetProbabilities:
-            targetPolicies.append(hiv_factory(prob1, prob2))
-            hiv_paper_graph(
-                "rlpy/Domains/StitchingPackage/metrics/hiv/100",
-                prob1,
-                prob2)
+    if False:
+        """
+        Heat map data
+        """
+        targetProbabilities = [.0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1.]
+        #targetProbabilities = [.0]
+        resultsOptimized = len(targetProbabilities)*[None]
+        resultsNormalized = len(targetProbabilities)*[None]
+        for idx1, prob1 in enumerate(targetProbabilities):
+            resultsOptimized[idx1] = len(targetProbabilities)*[None]
+            resultsNormalized[idx1] = len(targetProbabilities)*[None]
+            for idx2, prob2 in enumerate(targetProbabilities):
+                print "Finding {},{}...".format(prob1, prob2)
+                loss = hiv_paper_graph(
+                    normalized=False,
+                    targetProb1=prob1,
+                    targetProb2=prob2)
+                resultsOptimized[idx1][idx2] = loss
+                loss = hiv_paper_graph(
+                    normalized=True,
+                    targetProb1=prob1,
+                    targetProb2=prob2)
+                resultsNormalized[idx1][idx2] = loss
+        print resultsOptimized
+        print resultsNormalized

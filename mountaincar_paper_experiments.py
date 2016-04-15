@@ -5,8 +5,7 @@ __author__ = "Sean McGregor"
 from rlpy.Domains import MountainCar as domain_mountain_car
 from rlpy.Domains import Stitching as domain_stitching
 import numpy as np
-import os
-import random
+import pickle
 
 def mountaincar_factory(reinforce_threshold):
     rs = np.random.RandomState(0)
@@ -25,7 +24,14 @@ def mountaincar_factory(reinforce_threshold):
             return 0 # Left
     return policy_reinforce
 
-def mountaincar_paper_graph(metricFile, policyProbability, databaseSize):
+metricFiles = ["rlpy/Domains/StitchingPackage/metrics/mountaincar/optimized-2",
+               "rlpy/Domains/StitchingPackage/metrics/mountaincar/optimized-1",
+               "rlpy/Domains/StitchingPackage/metrics/mountaincar/normalized-2",
+               "rlpy/Domains/StitchingPackage/metrics/mountaincar/normalized-1"]
+
+def mountaincar_bar_chart_different_metrics(policyProbability, metricFiles=metricFiles):
+
+    databaseSize = 50
 
     databasePolicies = []
     databasePolicies.append(mountaincar_factory(1.0))
@@ -45,27 +51,144 @@ def mountaincar_paper_graph(metricFile, policyProbability, databaseSize):
       databasePolicies = databasePolicies,
       targetPolicies = targetPolicies,
       targetPoliciesRolloutCount = 200,
-      stitchingToleranceSingle = .1,
-      stitchingToleranceCumulative = .1,
       seed = 0,
       labels = ["x", "xdot"],
-      metricFile = metricFile,
+      metricFile = metricFiles[0], # not used since it will be repeatedly overwritten below
       optimizeMetric = False
     )
 
+    print "optimized for two target policies,optimized for one target policy,normalized for target policy 1,normalized for target policy 2"
+
+    metrics = []
+    for path in metricFiles:
+        f = open(path)
+        met = stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric)
+        metrics.append(stitching.mahalanobis_metric.ceiling_logarithm(met))
+        f.close()
+
     # Sum over each benchmark and policy
-    loss = stitching.mahalanobis_metric.loss(
-        stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric),
-        stitching,
-        stitching.mahalanobis_metric.benchmarks,
-        benchmark_rollout_count=50
+    losses = [-1,-1,-1,-1]
+    for idx, metric in enumerate(metrics):
+        loss = stitching.mahalanobis_metric.loss(
+            metric,
+            stitching,
+            stitching.mahalanobis_metric.benchmarks,
+            benchmark_rollout_count=30
+        )
+        losses[idx] = loss
+    print losses
+
+
+def mountaincar_database_size(databaseSize, metricFiles=metricFiles):
+
+    databasePolicies = []
+    databasePolicies.append(mountaincar_factory(1.0))
+    databasePolicies.append(mountaincar_factory(0.75))
+    databasePolicies.append(mountaincar_factory(0.5))
+
+    targetPolicies = []
+    targetPolicies.append(mountaincar_factory(.9))
+
+    domain = domain_mountain_car(.1)
+
+    # Create a stitching object
+    stitching = domain_stitching(
+        domain,
+        rolloutCount = databaseSize,
+        horizon = 200,
+        databasePolicies = databasePolicies,
+        targetPolicies = targetPolicies,
+        targetPoliciesRolloutCount = 200,
+        seed = 0,
+        labels = ["x", "xdot"],
+        metricFile = metricFiles[0],
+        optimizeMetric = False
     )
-    print "{},{},{}".format(policyProbability, databaseSize, loss)
+
+    print "optimized for two target policies,optimized for one target policy,normalized for target policy 1,normalized for target policy 2"
+
+    metrics = []
+    for path in metricFiles:
+        f = open(path)
+        met = stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric)
+        metrics.append(stitching.mahalanobis_metric.ceiling_logarithm(met))
+        f.close()
+
+    # Sum over each benchmark and policy
+    losses = [-1,-1,-1,-1]
+    for idx, metric in enumerate(metrics):
+        loss = stitching.mahalanobis_metric.loss(
+            metric,
+            stitching,
+            stitching.mahalanobis_metric.benchmarks,
+            benchmark_rollout_count=50
+        )
+        losses[idx] = loss
+    print losses
+
+
+def mountaincar_sans_replacement_bias(metricFiles=metricFiles):
+
+    sampleCounts = [20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100,105,110,115,120,125,130,135,140,145,150]
+
+    databasePolicies = []
+    databasePolicies.append(mountaincar_factory(1.0))
+    databasePolicies.append(mountaincar_factory(0.75))
+    databasePolicies.append(mountaincar_factory(0.5))
+
+    targetPolicies = []
+    targetPolicies.append(mountaincar_factory(.9))
+
+    domain = domain_mountain_car(.1)
+
+    # Create a stitching object
+    stitching = domain_stitching(
+        domain,
+        rolloutCount = 50,
+        horizon = 200,
+        databasePolicies = databasePolicies,
+        targetPolicies = targetPolicies,
+        targetPoliciesRolloutCount = 200,
+        seed = 0,
+        labels = ["x", "xdot"],
+        metricFile = metricFiles[0],
+        optimizeMetric = False
+    )
+
+    print "optimized for two target policies,optimized for one target policy,normalized for target policy 1,normalized for target policy 2"
+
+    metrics = []
+    for path in metricFiles:
+        f = open(path)
+        met = stitching.mahalanobis_metric.flatten(stitching.mahalanobis_metric.distance_metric)
+        metrics.append(stitching.mahalanobis_metric.ceiling_logarithm(met))
+        f.close()
+
+    # Sum over each benchmark and policy
+    for sampleCount in sampleCounts:
+        losses = [-1,-1,-1,-1]
+        for idx, metric in enumerate(metrics):
+            loss = stitching.mahalanobis_metric.loss(
+                metric,
+                stitching,
+                stitching.mahalanobis_metric.benchmarks,
+                benchmark_rollout_count=sampleCount
+            )
+            losses[idx] = loss
+        print losses
+
 
 if __name__ == "__main__":
-    for policyProbability in [.5, .55, .6, .65, .7, .75, .8, .85, .9, .95, 1.]:
-        for databaseSize in [20, 40, 60, 80, 100]:
-            mountaincar_paper_graph(
-                "rlpy/Domains/StitchingPackage/metrics/mountaincar/100",
-                policyProbability,
-                databaseSize)
+    targets = [.5, .55, .6, .65, .7, .75, .8, .85, .9, .95, 1.]
+    print "mountaincar_bar_chart_different_metrics"
+    for policyProbability in targets:
+        mountaincar_bar_chart_different_metrics(policyProbability)
+
+    ## Experiment not generated
+    #databaseSizes = [20,25,30,35,40,45,50]
+    #print "mountaincar_different_database_sizes"
+    #for databaseSize in databaseSizes:
+    #    mountaincar_database_size(databaseSize)
+
+    print "mountaincar_bar_chart_different_sample_counts"
+    mountaincar_sans_replacement_bias()

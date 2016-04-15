@@ -35,7 +35,7 @@ hivInitialization = {
          "current_value": 0, "max": 1, "min": 0, "units": ""},
         {"name": "Metric Version",
          "description": "If synthesis is active, this will either optimize a new distance metric and cache it to metrics/VERSION, or load a pre-existing metric from the cache.",
-         "current_value": 100, "max": 1000, "min": 0, "units": ""},
+         "current_value": 200, "max": 1000, "min": 0, "units": ""},
         {"name": "rollouts in database",
          "description": "Number of rollouts to draw from in the database.",
          "current_value": 30, "max": 10000, "min": 10, "units": ""},
@@ -93,6 +93,7 @@ def generateRollouts(domain, labels, count, horizon, policy=None):
             state["action"] = action
             r, ns, terminal, currentPossibleActions = domain.step(action)
             state["reward"] = r
+            #state["stitch distance"] = 0.0
             rollout.append(state)
         rollouts.append(rollout)
     return rollouts
@@ -176,13 +177,15 @@ def hivRollouts(query):
         stitching_database = None
         database_cache_name = "{}-{}".format(database_rollouts, database_horizon)
         database_cache_path = "../rlpy/Domains/StitchingPackage/databases/hiv/" + database_cache_name
-        save_database = False
+        save_database = True
         if os.path.isfile(database_cache_path):
             f = open(database_cache_path, 'r')
             stitching_database = pickle.load(f)
             f.close()
             print "loaded database from pickled file"
-            save_database = True
+            save_database = False
+        else:
+            print "no database fount at {}, generating database...".format(database_cache_path)
 
         domain = domain_stitching(
             hiv,

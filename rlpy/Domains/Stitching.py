@@ -54,15 +54,7 @@ class MahalanobisDistance(object):
         self.stitching = stitching
 
         self.target_policies = target_policies
-
-        self.target_rollouts = []
-        for policy in self.target_policies:
-            t = self.stitching.getRollouts(
-                  count=self.stitching.targetPoliciesRolloutCount,
-                  horizon=self.stitching.horizon,
-                  policy=policy,
-                  domain=self.stitching.domain)
-            self.target_rollouts.append(t)
+        self._sampleTargetTrajectories()
 
         if normalize_starting_metric:
             for idx, variable in enumerate(stitching.labels):
@@ -75,11 +67,10 @@ class MahalanobisDistance(object):
                 if variance == 0:
                     variance = 1.0
                 self.distance_metric[idx][idx] = 1.0/variance
-
-        self.benchmarks = []
-        for idx, rollouts in enumerate(self.target_rollouts):
-            benchmark = Benchmark(rollouts, self.stitching.action_count, seed=0)
-            self.benchmarks.append(benchmark)
+            if self.stitching.writeNormalizedMetric is not None:
+                f = open(self.stitching.writeNormalizedMetric, "wb")
+                met = pickle.dump(self.distance_metric, f)
+                f.close()
 
         # The Powell optimizer needs a non-zero value to find the emprical gradient in log space
         for idx, row in enumerate(self.distance_metric):
@@ -88,6 +79,27 @@ class MahalanobisDistance(object):
                     pass
                     # todo: additional analysis of this
                     #self.distance_metric[idx][idx2] = .00000000000000001
+
+    def _sampleTargetTrajectories(self):
+        """
+        Assign the target trajectories and build the benchmark.
+        :param policies:
+        :return:
+        """
+        self.target_policies = self.stitching.targetPolicies
+        self.target_rollouts = []
+        for policy in self.target_policies:
+            t = self.stitching.getRollouts(
+                count=self.stitching.targetPoliciesRolloutCount,
+                horizon=self.stitching.horizon,
+                policy=policy,
+                domain=self.stitching.domain)
+            self.target_rollouts.append(t)
+
+        self.benchmarks = []
+        for idx, rollouts in enumerate(self.target_rollouts):
+            benchmark = Benchmark(rollouts, self.stitching.action_count, seed=0)
+            self.benchmarks.append(benchmark)
 
     @staticmethod
     def flatten(matrix):
@@ -195,7 +207,11 @@ class MahalanobisDistance(object):
         total_benchmark = 0
 
         # Benchmark against the horizon and target policies of the stitching domain
-        rolloutCount = min(stitching.rolloutCount, benchmark_rollout_count)
+        rolloutCount = benchmark_rollout_count
+        if stitching.rolloutCount < benchmark_rollout_count:
+            pass
+            #rolloutCount = stitching.rolloutCount
+            #print "WARNING!!! You are attempting to find the loss for more trajectories than each DB policy generated"
         horizon = stitching.horizon
         policies = stitching.targetPolicies
         for idx, policy in enumerate(policies):
@@ -207,11 +223,11 @@ class MahalanobisDistance(object):
               policy=policy,
               domain=stitching)
             for label in stitching.labels + ["reward"]:
-                variable_benchmark = benchmark.benchmark_variable(synthesized_rollouts, label)
+                variable_benchmark = benchmark.benchmark_variable(synthesized_rollouts, label, square=True)
                 current_benchmark += variable_benchmark
-            action_benchmark = benchmark.benchmark_actions(synthesized_rollouts)
+            action_benchmark = benchmark.benchmark_actions(synthesized_rollouts, square=True)
             current_benchmark += action_benchmark
-            total_benchmark += math.pow(current_benchmark, 2) # Square the loss from this policy
+            total_benchmark += current_benchmark # Square the loss from this policy
         stitching.tree = old_tree
 
         return total_benchmark
@@ -331,9 +347,10 @@ class Stitching(Domain):
       stitchingToleranceCumulative = .1,
       seed = None,
       database = None,
-      labels = None, # default to the MountainCar domain
+      labels = None,
       metricFile = None,
-      optimizeMetric = True
+      optimizeMetric = True,
+      writeNormalizedMetric = None
     ):
         """
         :param domain: The domain used to generate MC rollouts
@@ -356,6 +373,8 @@ class Stitching(Domain):
         self.horizon = horizon
         self.database = []
         self.labels = labels
+
+        self.writeNormalizedMetric = writeNormalizedMetric
 
         # Counter used to determine which set of rollouts are being generated.
         # This ensures states are stitched without replacement only for the
@@ -548,8 +567,12 @@ class Stitching(Domain):
                 # record stitching distances
                 totalTransitions += 1
                 if type(domain).__name__ == "Stitching" and self.lastStitchDistance > 0:
+                    #state["stitch distance"] = self.lastStitchDistance
                     self.totalStitchingDistance += self.lastStitchDistance
                     self.totalNonZeroStitches += 1
+                else:
+                    pass
+                    #state["stitch distance"] = 0.0
                 rollout.append(state)
             rollouts.append(rollout)
         print "Returning rollouts with {} lossy stitched transitions for {} total transitions".format(self.totalNonZeroStitches, totalTransitions)

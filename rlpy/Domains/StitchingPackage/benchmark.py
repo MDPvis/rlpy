@@ -222,15 +222,19 @@ class Benchmark(object):
       self,
       synthesized_rollouts,
       event_numbers=[],
-      weight_objective=True):
+      weight_objective=True,
+      square=False
+    ):
         """
         Benchmark the rendering of actions within the visualization as the average shift of the
         proportion of the states in each time step that selects each action.
         """
 
         if len(max(synthesized_rollouts, key=len)) > len(max(self.base_rollouts, key=len)):
-            print "Synthesized Length: {} Target Length: {}".format(len(max(synthesized_rollouts, key=len)), len(max(self.base_rollouts, key=len)))
-            raise Exception, "The base rollouts in the benchmark are shorter than the synthesized rollouts"
+            pass
+            #print "Synthesized Length: {} Target Length: {}".format(len(max(synthesized_rollouts, key=len)), len(max(self.base_rollouts, key=len)))
+            #raise Exception, "The base rollouts in the benchmark are shorter than the synthesized rollouts"
+            #print "WARNING!!!! The base rollouts in the benchmark are shorter than the synthesized rollouts"
 
         accumulated_distance = 0.
 
@@ -267,6 +271,8 @@ class Benchmark(object):
         # Divide by action count because we don't want large action spaces to dominate the objective,
         # but multiply by the quantile count because every variable has multiple quantiles
         ret = accumulated_distance / float(self.action_count) * len(self.quantiles)
+        if square:
+            ret = math.pow(ret, 2)
         assert not math.isnan(ret)
         assert ret >= 0.0
         return ret
@@ -276,7 +282,9 @@ class Benchmark(object):
       synthesized_rollouts,
       variable_name,
       event_numbers=[],
-      weight_objective=True):
+      weight_objective=True,
+      square=False
+    ):
         """
         Get the visual fidelity of a variable. This is taken with respect to the selected event numbers
         and quantiles for a specific variable name. If the selected event numbers are not in the
@@ -291,8 +299,10 @@ class Benchmark(object):
             the estimator of the quantile.
         """
         if len(max(synthesized_rollouts, key=len)) > len(max(self.base_rollouts, key=len)):
-            print "Synthesized Length: {} Target Length: {}".format(len(max(synthesized_rollouts, key=len)), len(max(self.base_rollouts, key=len)))
-            raise Exception, "The base rollouts in the benchmark are shorter than the synthesized rollouts"
+            pass
+            #print "Synthesized Length: {} Target Length: {}".format(len(max(synthesized_rollouts, key=len)), len(max(self.base_rollouts, key=len)))
+            #raise Exception, "The base rollouts in the benchmark are shorter than the synthesized rollouts"
+            #print "WARNING!!!! The base rollouts in the benchmark are shorter than the synthesized rollouts"
 
         accumulated_distance = 0.
 
@@ -319,5 +329,8 @@ class Benchmark(object):
                 current_distance =  self.mc_variable_quantiles[variable_name][event_number][quantile_number] - synthesized_value
                 current_absolute_distance = abs(current_distance)
                 accumulated_distance += (current_absolute_distance * scale)
+
+        if square:
+            accumulated_distance = math.pow(accumulated_distance, 2)
 
         return accumulated_distance

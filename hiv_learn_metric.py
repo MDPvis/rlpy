@@ -48,7 +48,8 @@ def hiv_paper_learn_metric(metricFile):
 
     databaseProbabilities = [0, .25, 1]
     #targetProbabilities = [.05, .2, .95]
-    targetProbabilities = [.2]
+    targetProbabilities = [.2] # metric 200
+    #targetProbabilities = [.7] # metric 300
 
     databasePolicies = []
     for prob1 in databaseProbabilities:
@@ -66,7 +67,7 @@ def hiv_paper_learn_metric(metricFile):
     # Create a stitching object
     stitching = domain_stitching(
       domain,
-      rolloutCount = 20,
+      rolloutCount = 50,
       horizon = 50,
       databasePolicies = databasePolicies,
       targetPolicies = targetPolicies,
@@ -76,10 +77,12 @@ def hiv_paper_learn_metric(metricFile):
       seed = 0,
       labels = ["t1", "t1infected", "t2", "t2infected", "v", "e"],
       optimizeMetric = True,
-      metricFile = metricFile
+      metricFile = metricFile,
+      writeNormalizedMetric = "rlpy/Domains/StitchingPackage/metrics/hiv/600"
     )
 
 if __name__ == "__main__":
     hiv_paper_learn_metric(
-        "../rlpy/Domains/StitchingPackage/metrics/hiv/100",
+        #"rlpy/Domains/StitchingPackage/metrics/hiv/200",
+        "rlpy/Domains/StitchingPackage/metrics/hiv/500"
     )

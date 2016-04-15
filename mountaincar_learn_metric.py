@@ -5,8 +5,6 @@ __author__ = "Sean McGregor"
 from rlpy.Domains import MountainCar as domain_mountain_car
 from rlpy.Domains import Stitching as domain_stitching
 import numpy as np
-import os
-import random
 
 def mountaincar_factory(reinforce_threshold):
     rs = np.random.RandomState(0)
@@ -25,36 +23,36 @@ def mountaincar_factory(reinforce_threshold):
             return 0 # Left
     return policy_reinforce
 
-def mountaincar_paper_learn_metric(metricFile):
+def mountaincar_paper_learn_metric(targetPolicies):
 
     databasePolicies = []
     databasePolicies.append(mountaincar_factory(1.0))
     databasePolicies.append(mountaincar_factory(0.75))
     databasePolicies.append(mountaincar_factory(0.5))
 
-    targetPolicies = []
-    targetPolicies.append(mountaincar_factory(.6))
-    targetPolicies.append(mountaincar_factory(.9))
+    normalizedMetricFile = "rlpy/Domains/StitchingPackage/metrics/mountaincar/normalized-{}".format(len(targetPolicies))
+    optimizedMetricFile = "rlpy/Domains/StitchingPackage/metrics/mountaincar/optimized-{}".format(len(targetPolicies))
 
     domain = domain_mountain_car(.1)
 
     # Create a stitching object
     stitching = domain_stitching(
       domain,
-      rolloutCount = 200,
+      rolloutCount = 50,
       horizon = 50,
       databasePolicies = databasePolicies,
       targetPolicies = targetPolicies,
       targetPoliciesRolloutCount = 200,
-      stitchingToleranceSingle = .1,
-      stitchingToleranceCumulative = .1,
       seed = 0,
-      metricFile = metricFile,
+      metricFile = optimizedMetricFile,
       labels = ["x", "xdot"],
-      optimizeMetric = True
+      optimizeMetric = True,
+      writeNormalizedMetric = normalizedMetricFile
     )
 
 if __name__ == "__main__":
-    mountaincar_paper_learn_metric(
-        "rlpy/Domains/StitchingPackage/metrics/mountaincar/100",
-    )
+    targetPolicies = []
+    targetPolicies.append(mountaincar_factory(.6))
+    mountaincar_paper_learn_metric(targetPolicies)
+    targetPolicies.append(mountaincar_factory(.9))
+    mountaincar_paper_learn_metric(targetPolicies)

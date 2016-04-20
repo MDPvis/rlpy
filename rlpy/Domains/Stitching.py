@@ -473,8 +473,8 @@ class Stitching(Domain):
         :return: ``(TransitionTuple, distance)`` The selected transition from the database and the
           distance to that transition.
         """
-        q = list(preStateDistanceMetricVariables)
-
+        q = np.array(preStateDistanceMetricVariables)
+        q = q.reshape(1,-1)
         k = min(k, len(self.database))
         (distances_array, indices_array) = self.tree.query(q,
           k=k,

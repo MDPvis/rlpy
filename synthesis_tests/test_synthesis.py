@@ -35,7 +35,10 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
       rolloutCount=database_rollouts,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed = 0)
+      seed = 0,
+      labels=["x", "xdot"],
+      optimizeMetric=False
+    )
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
@@ -48,13 +51,13 @@ def test_near_exact_reproduction_of_rollouts_under_same_policy():
       domain=synthesis_domain)
     bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     x_bench = bench.benchmark_variable(synthesized_rollouts, "x")
-    assert x_bench < .2, "x is not synthesized within tolerance, current: %f" % x_bench
+    assert x_bench < 1.0, "x is not synthesized within tolerance, current: %f" % x_bench
     xdot_bench = bench.benchmark_variable(synthesized_rollouts, "xdot")
-    assert xdot_bench < .2, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
+    assert xdot_bench < 1.0, "xdot is not synthesized within tolerance, current: %f" % xdot_bench
     reward_bench = bench.benchmark_variable(synthesized_rollouts, "reward")
-    assert reward_bench < .2, "reward is not synthesized within tolerance, current: %f" % reward_bench
+    assert reward_bench == 0., "reward is not synthesized within tolerance, current: %f" % reward_bench
     action_bench = bench.benchmark_actions(synthesized_rollouts)
-    assert action_bench < .2, "action is not synthesized within tolerance, current: %f" % action_bench
+    assert action_bench == 0., "action is not synthesized within tolerance, current: %f" % action_bench
     return
 
 def test_starting_state_distribution_is_exact():
@@ -82,7 +85,9 @@ def test_starting_state_distribution_is_exact():
       rolloutCount=database_rollouts,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed=0)
+      seed=0,
+      optimizeMetric=False,
+      labels=["x", "xdot"])
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
@@ -93,6 +98,8 @@ def test_starting_state_distribution_is_exact():
       horizon,
       policy=policy,
       domain=synthesis_domain)
+    print true_rollouts
+    print synthesized_rollouts
     bench = Benchmark(true_rollouts, synthesis_domain.action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0)
     x_bench = bench.benchmark_variable(
       synthesized_rollouts,
@@ -132,7 +139,9 @@ def test_consistency_in_random_numbers():
       rolloutCount=database_rollouts,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed = 0)
+      seed = 0,
+      labels=["x", "xdot"],
+      optimizeMetric=False)
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
@@ -155,7 +164,9 @@ def test_consistency_in_random_numbers():
       rolloutCount=database_rollouts,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed=0)
+      seed=0,
+      labels=["x", "xdot"],
+      optimizeMetric=False)
     true_rollouts = synthesis_domain.getRollouts(
       number_rollouts,
       horizon,
@@ -176,10 +187,10 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
     When benchmarking synthesized trajectories, it is important that the benchmark is not generated
     from more trajectories than we have samples for.
     """
-    target_rollout_count = 10
-    target_horizon = 4
+    target_rollout_count = 20
+    target_horizon = 10
     database_rollout_count = 100
-    database_horizon = 4
+    database_horizon = 10
 
     prior_loss = 0
 
@@ -197,7 +208,9 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
       rolloutCount=database_rollout_count,
       horizon=database_horizon,
       databasePolicies=[generating_policy],
-      seed = 0)
+      seed = 0,
+      labels=["x", "xdot"],
+      optimizeMetric=False)
 
     matrix_variable_count=5
     mahalanobis_distance = MahalanobisDistance(
@@ -244,7 +257,10 @@ def test_stitching_distance():
       rolloutCount=database_rollouts,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed = 0)
+      seed = 0,
+      labels=["x", "xdot"],
+      optimizeMetric=False
+    )
 
     # The policy we are trying to approximate
     def policy2(state, possibleActions):

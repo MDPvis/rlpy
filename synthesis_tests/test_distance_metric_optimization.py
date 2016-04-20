@@ -31,7 +31,8 @@ def test_initialization_of_mahalanobis_distance():
       rolloutCount=database_rollout_count,
       horizon=database_horizon,
       databasePolicies=[policy],
-      seed = 0)
+      seed = 0,
+      labels=["x","xdot"])
 
     # get the metric
     distance = MahalanobisDistance(
@@ -68,7 +69,8 @@ def test_updated_distance_metric_does_not_have_worse_performance():
       horizon=database_horizon,
       databasePolicies=[policy],
       seed=0,
-      optimizeMetric=False)
+      optimizeMetric=False,
+      labels=["x","xdot"])
 
     # Peturb the normalized distance metric so the optimization will
     # have an easier time moving towards something better
@@ -121,7 +123,8 @@ def test_has_non_zero_loss():
       rolloutCount=database_rollout_count,
       horizon=database_horizon,
       databasePolicies=[generating_policy],
-      seed=0)
+      seed=0,
+      labels=["x","xdot"])
 
     # get the metric
     distance = MahalanobisDistance(
@@ -171,9 +174,9 @@ def test_has_zero_loss():
     There should be no loss when trying to reconstruct the rollouts from the database
     since the transition function has no stochasticity, ie, there is no noise in the domain.
     """
-    target_rollout_count = 50
+    target_rollout_count = 5
     target_horizon = 2
-    database_rollout_count = 50
+    database_rollout_count = 5
     database_horizon = 2
     mountaincar = domain_mountain_car(noise=0)
     mountaincar.random_state = np.random.RandomState(0)
@@ -189,7 +192,10 @@ def test_has_zero_loss():
       databasePolicies=[generating_policy],
       targetPolicies=[generating_policy],
       seed = 0,
-      optimizeMetric = False)
+      optimizeMetric = False,
+      labels=["x","xdot"],
+      targetPoliciesRolloutCount=target_rollout_count
+    )
     rs = np.random.RandomState(0)
     synthesis_domain.random_state = np.random.RandomState(0)
     distance = MahalanobisDistance(
@@ -198,6 +204,7 @@ def test_has_zero_loss():
         target_policies=[generating_policy],
         normalize_starting_metric=True,
         cached_metric=None)
+
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = MahalanobisDistance.flatten(matrix_metric_1)
     flat_metric = MahalanobisDistance.ceiling_logarithm(flat_metric)
@@ -221,7 +228,8 @@ def test_has_zero_loss():
       databasePolicies = [generating_policy],
       targetPolicies=[generating_policy],
       seed = 0,
-      optimizeMetric = False)
+      optimizeMetric = False,
+      targetPoliciesRolloutCount=target_rollout_count)
 
     rs = np.random.RandomState(0)
     synthesis_domain.random_state = np.random.RandomState(0)
@@ -231,6 +239,10 @@ def test_has_zero_loss():
         target_policies=[generating_policy],
         normalize_starting_metric=True,
         cached_metric=None)
+
+    print "\n\n\n\n\n\n\n\n\n\n"
+
+    print distance.benchmarks[0].base_rollouts
 
     matrix_metric_1 = distance.get_matrix_as_np_array()
     flat_metric = MahalanobisDistance.flatten(matrix_metric_1)
@@ -335,7 +347,8 @@ def test_updates_distance_metric_to_not_be_identity():
       rolloutCount=database_rollout_count,
       horizon=database_horizon,
       databasePolicies=[synthesized_policy],
-      seed=0)
+      seed=0,
+      labels=["x","xdot"])
 
     distance = MahalanobisDistance(
         5,
@@ -460,6 +473,9 @@ def test_normalize_starting_metric():
         return rs.choice(possibleActions)
 
     class MockSynthesis(object):
+
+        targetPolicies = [target_policy]
+        writeNormalizedMetric = None
 
         def __init__(self):
             pass

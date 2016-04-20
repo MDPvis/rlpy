@@ -17,6 +17,7 @@ import os.path
 import sys
 import pickle
 from rlpy.Domains.StitchingPackage.benchmark import Benchmark
+from rlpy.Domains.StitchingPackage.TransitionTuple import TransitionTuple
 
 __copyright__ = "Copyright 2015, Sean McGregor"
 __credits__ = ["Sean McGregor"]
@@ -222,7 +223,7 @@ class MahalanobisDistance(object):
               horizon=horizon,
               policy=policy,
               domain=stitching)
-            for label in stitching.labels + ["reward"]:
+            for label in stitching.labels:
                 variable_benchmark = benchmark.benchmark_variable(synthesized_rollouts, label, square=True)
                 current_benchmark += variable_benchmark
             action_benchmark = benchmark.benchmark_actions(synthesized_rollouts, square=True)
@@ -235,13 +236,6 @@ class MahalanobisDistance(object):
     def optimize(self):
         """
         Optimize and save the distance metric in non-exponentiated form.
-        Improvements:
-          todo: visualize mountain car optimized and non-optimized stitching
-          todo: add metrics for stitching distance and count and add tests for them
-          todo: potentially reduce the number of actions in the distance metric by basing all the actions on a single action
-          todo: run experiments where states can only be stitched if they have the same action
-          todo: look up older papers on log-Cholesky and Cholesky, read them
-          todo: Log cholesky \cite{Pinheiro1988} with powell, then maybe worry about lowe
         """
 
         # The loss function will exponentiate the solution, so our starting point should
@@ -254,7 +248,7 @@ class MahalanobisDistance(object):
         def print_and_save(vec):
             loss = MahalanobisDistance.loss(
                 vec,
-                self.stitching, self.benchmarks, self)
+                self.stitching, self.benchmarks)
             print "==Optimization iteration complete=="
             print vec
             print "LOSS:"
@@ -269,7 +263,7 @@ class MahalanobisDistance(object):
         res = minimize(
           MahalanobisDistance.loss,
           inverse_exponentiated,
-          args=(self.stitching, self.benchmarks, self),
+          args=(self.stitching, self.benchmarks),
           method="Powell",
           tol=.000000001,
           options={"disp": True},
@@ -291,33 +285,6 @@ class MahalanobisDistance(object):
             return np.array(matrix)
         else:
             return np.array(self.distance_metric)
-
-class TransitionTuple(tuple):
-    """
-    A Simple tuple class for storing state transitions in the KD tree [0].
-    The object holds the tuple for the pre-transition state that will be stitched to
-    in the current post-transition state. The class contains properties not in the
-    tuple:
-
-    * preState: The state we might stitch to, this is also represented as a tuple.
-    * postState: What state resulted from the pre-transition state.
-    * isTerminal: An indicator for whether the transitioned to state is terminal.
-    * isInitial: An indicator for whether the pre-transition state is an initial state.
-    * reward: The reward for taking the action.
-    * possibleActions: What actions can be taken in the resulting state.
-
-    [0] http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.KDTree.html#scipy.spatial.KDTree
-    """
-    def __new__(cls, preState, postState, isTerminal, isInitial, reward, possibeActions):
-        t = tuple.__new__(cls, tuple(preState))
-        t.preState = preState
-        t.postState = postState
-        t.isTerminal = isTerminal
-        t.isInitial = isInitial
-        t.reward = reward
-        t.possibleActions = possibeActions
-        t.last_accessed_iteration = -1 # determines whether it is available for stitching
-        return t
 
 class Stitching(Domain):
     """
@@ -463,7 +430,8 @@ class Stitching(Domain):
 
     def _populateDatabase(self):
         """
-        Load many transitions into the database then create the ball tree.
+        Load many transitions into the database. This assumes all the state variables (minus reward) are included
+        in the distance metric.
         """
         for policy in self.databasePolicies:
             for rolloutNumber in range(self.rolloutCount):
@@ -477,34 +445,35 @@ class Stitching(Domain):
                     action = policy(state, possible_actions)
                     action_indicator = [0] * self.action_count
                     action_indicator[action] = 1
-                    state = np.append(state, action_indicator)
+                    preState = np.append(state, action_indicator)
                     r, ns, terminal, nextStatePossibleActions = self.domain.step(action)
+
+                    visualizationState = {"reward": r, "action":action}
+                    for idx, label in enumerate(self.labels):
+                        visualizationState[label] = state[idx]
 
                     # The helicopter domain is partially observable so we need to grab the full state
                     ns = self.domain.state
                     t = TransitionTuple(
-                      state,
-                      ns,
-                      terminal,
-                      (currentDepth == 0),
-                      r,
-                      nextStatePossibleActions)
+                        preState,
+                        ns,
+                        terminal,
+                        (currentDepth == 0),
+                        nextStatePossibleActions,
+                        visualizationState # this needs to include all the state variables, including the actions taken
+                    )
                     self.database.append(t)
                     currentDepth += 1
 
 
-    def _getClosest(self, state, a, k=1):
+    def _getClosest(self, preStateDistanceMetricVariables, k=1):
         """
         returns (at random) one of the closest k point from the KD tree.
-        :param state: The current state of the world that we want the closest transition for.
-        :param a: The selected action for the current state.
+        :param preStateDistanceMetricVariables: The current state of the world that we want the closest transition for.
         :return: ``(TransitionTuple, distance)`` The selected transition from the database and the
           distance to that transition.
         """
-        q = list(state)
-        action_indicator = [0] * self.action_count
-        action_indicator[a] = 1
-        q = np.append(q, action_indicator)
+        q = list(preStateDistanceMetricVariables)
 
         k = min(k, len(self.database))
         (distances_array, indices_array) = self.tree.query(q,
@@ -514,18 +483,44 @@ class Stitching(Domain):
         indices = indices_array[0]
         for index, i in enumerate(indices):
             if self.database[i].last_accessed_iteration != self.rolloutSetCounter:
-                self.database[i].last_accessed_iteration = self.rolloutSetCounter
                 return (self.database[i], distances_array[0][index])
         if k < 10000 and k < len(self.database):
-            return self._getClosest(state, a, k=k*10)
+            return self._getClosest(preStateDistanceMetricVariables, k=k*10)
         raise Exception("There were no valid points within "\
         "{} points in a database of {} points. This failure occured when "\
         "attempting to generate rollout set {}".format(k, len(self.database), self.rolloutSetCounter))
 
-    prng_for_policy = np.random.RandomState(0)
-    def random_policy(self, s, actions):
-        """Default to a random action selection"""
-        return prng_for_policy.choice(actions)
+    def _getEqualTransitions(self, preStateDistanceMetricVariables, k):
+        """
+        Mark the K closest tuples as being expended after using the state from a different action.
+        :param postStateDistanceMetricVariables: The current state of the world that we want the closest transition for.
+        :param k: The number of Tuples to return, should equal the number of actions.
+        :return: ``[TransitionTuple,...]`` The selected transitions from the database.
+        """
+        q = list(preStateDistanceMetricVariables)
+
+        k = min(k, len(self.database))
+        (distances_array, indices_array) = self.tree.query(q,
+                                                           k=k,
+                                                           return_distance=True,
+                                                           sort_results=True)
+
+        for distance in distances_array:
+            assert distance == 0.0
+
+        nearbyActions = []
+        for idx in indices_array:
+            assert self.database[idx].visualizationStateVariables["action"] not in nearbyActions
+            nearbyActions.append(self.database[idx].visualizationStateVariables["action"])
+
+        indices = indices_array[0]
+        transitions = []
+        for index, i in enumerate(indices):
+            assert self.database[i].last_accessed_iteration != self.rolloutSetCounter
+            self.database[i].last_accessed_iteration = self.rolloutSetCounter
+            transitions.append(self.database[i])
+        return transitions
+
 
     def getRollouts(self, count=10, horizon=10, policy=None, domain=None):
         """
@@ -536,8 +531,6 @@ class Stitching(Domain):
                 policy (function(state, actions)): The function used to select an action.
                 domain (Domain): The domain that will be called to generate rollouts.
         """
-        if not policy:
-            policy = self.random_policy
         if not domain:
             domain = self
 
@@ -555,25 +548,30 @@ class Stitching(Domain):
             terminate = False
             while not terminate and len(rollout) < horizon:
                 terminate = domain.isTerminal()
-                possible_actions = domain.possibleActions()
-                action = policy(domain.state, possible_actions)
-                state = {}
-                for i in range(len(self.labels)):
-                    state[self.labels[i]] = domain.state[i]
-                state["action"] = action
-                r, ns, terminal, currentPossibleActions = domain.step(action)
-                state["reward"] = r
-
-                # record stitching distances
                 totalTransitions += 1
-                if type(domain).__name__ == "Stitching" and self.lastStitchDistance > 0:
+                if type(domain).__name__ == "Stitching":
+                    self.totalNonZeroStitches += 1
+                    r, ns, terminal, currentPossibleActions = domain.step(policy)
+
                     #state["stitch distance"] = self.lastStitchDistance
                     self.totalStitchingDistance += self.lastStitchDistance
-                    self.totalNonZeroStitches += 1
+
+                    state = {"action": self.lastEvaluatedAction, "reward": r}
+                    assert state["action"] >= 0
+                    for label in self.labels:
+                        state[label] = ns[label]
+                    rollout.append(state)
                 else:
-                    pass
+                    action = policy(self.domain.state, self.domain.possibleActions(self.domain.state))
+                    state = {}
+                    for i in range(len(self.labels)):
+                        state[self.labels[i]] = self.domain.state[i]
+                    state["action"] = action
+                    assert action >= 0
                     #state["stitch distance"] = 0.0
-                rollout.append(state)
+                    r, ns, terminal, currentPossibleActions = domain.step(action)
+                    state["reward"] = r
+                    rollout.append(state)
             rollouts.append(rollout)
         print "Returning rollouts with {} lossy stitched transitions for {} total transitions".format(self.totalNonZeroStitches, totalTransitions)
         return rollouts
@@ -584,18 +582,52 @@ class Stitching(Domain):
         """
         return self.currentPossibleActions
 
-    def step(self, a):
+    def step(self, policy, biasCorrected=False, actionsInDistanceMetric=True):
         """
-        Take the action *a*, update the state variable and return the reward,
-        state, whether it is terminal, and the set of possible actions.
+        Find the closest transition matching the policy, then find all the transitions matching the pre-state
+        and remove them from the database.
+
+        biasCorrected (bool): Whether the database has sampled every action at every state in the database.
+            This will determine whether we remove all matching states when we sample one.
+        actionsInDistanceMetric (bool): Indicates whether the distance metric needs indicator variables for each of the
+            actions. This will force the policy to be evaluated before stitching.
         """
-        (postTransitionObject, stitchDistance) = self._getClosest(self.state, a)
+        # We can't correct the bias if the actions are in the distance metric
+        assert biasCorrected != actionsInDistanceMetric
+        pre = self.preStateDistanceMetricVariables.copy()
+
+        possibleActions = []
+        for idx in range(0,self.domain.actions_num):
+            possibleActions.append(idx)
+        if actionsInDistanceMetric:
+            #action = policy(pre, possibleActions)
+            action = policy(pre, self.currentPossibleActions)
+            assert action >= 0
+            for idx, possibleAction in enumerate(possibleActions):
+                if action == idx:
+                    pre = np.append(pre, 1.)
+                else:
+                    pre = np.append(pre, 0.)
+        (postStitchObject, stitchDistance) = self._getClosest(pre)
         self.lastStitchDistance = stitchDistance # because we can't change the return signature
         assert stitchDistance >= 0
-        r = postTransitionObject.reward
-        self.currentPossibleActions = postTransitionObject.possibleActions
-        self.terminal = postTransitionObject.isTerminal
-        self.state = postTransitionObject.postState
+
+        if biasCorrected:
+            transitions = self._getEqualTransitions(postStitchObject, len(possibleActions))# remove all exactly matching states to avoid bias
+            action = policy(postStitchObject.visualizationStateVariables, possibleActions)
+            assert action >= 0
+            for candidate in transitions:
+                if candidate.visualizationStateVariables["action"] == action:
+                    transition = candidate
+                    break
+        else:
+            transition = postStitchObject
+        self.lastEvaluatedAction = action
+        self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
+        r = transition.visualizationResultState["reward"]
+        self.currentPossibleActions = transition.possibleActions
+        self.terminal = transition.isTerminal
+        self.state = transition.visualizationResultState
         return r, self.state.copy(), self.terminal, self.currentPossibleActions
 
     def s0(self):
@@ -607,7 +639,11 @@ class Stitching(Domain):
         :return: ``state`` for the starting state.
         """
         self.partially_observed_state, self.terminal, self.currentPossibleActions = self.domain.s0()
-        self.state = self.domain.state # in the helicopter domain, s0 doesn't return the full state
+        self.state = {} # There is no state until it is stitched and the complete state is recovered
+        if hasattr(self.domain, "INIT_STATE"):
+            self.preStateDistanceMetricVariables = self.domain.INIT_STATE
+        else:
+            self.preStateDistanceMetricVariables = self.domain.start_state.copy()
         return self.state.copy(), self.terminal, self.currentPossibleActions
 
     def isTerminal(self):

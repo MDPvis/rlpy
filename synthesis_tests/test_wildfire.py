@@ -35,9 +35,9 @@ def test_post_processing():
         "Stand Volume Age" #0-999? externals 4 [999, 0, 263.8861739885612]
         # extra state summary currently returned [0, 0, 0.0]
     ]
-    csvOutFile = "synthesis_tests/wildfire_processed.csv"
+    csvOutFile = "synthesis_tests/wildfire_data/wildfire_processed.csv"
     os.remove(csvOutFile)
-    WildfireData.postProcessData("synthesis_tests/wildfire.csv", csvOutFile,
+    WildfireData.postProcessData("synthesis_tests/wildfire_data/wildfire.csv", csvOutFile,
                                  DISTANCE_METRIC_VARIABLES=DISTANCE_METRIC_VARIABLES)
     with open(csvOutFile, 'r') as f:
         reader = csv.reader(f, delimiter=',')
@@ -77,7 +77,7 @@ def test_builds_csv():
     """
     Test the construction of a state summary based on a given compressed LCP
     """
-    wildfireData = WildfireData("synthesis_tests/wildfire_processed.csv")
+    wildfireData = WildfireData("synthesis_tests/wildfire_data/wildfire_processed.csv")
     for transition in wildfireData.database:
         assert transition.preStateDistanceMetricVariables[0] == 130.011288678, "actual: %s" % transition.preStateDistanceMetricVariables[0]
         assert transition.preStateDistanceMetricVariables[1] == 27.4871670222, "actual: %s" % transition.preStateDistanceMetricVariables[1]
@@ -93,14 +93,14 @@ def test_builds_csv():
 
 
 def test_get_database():
-    wildfireData = WildfireData("synthesis_tests/wildfire_processed.csv")
+    wildfireData = WildfireData("synthesis_tests/wildfire_data/wildfire_processed.csv")
     db = wildfireData.getDatabase()
     assert db[0].preStateDistanceMetricVariables[0] == wildfireData.database[0].preStateDistanceMetricVariables[0]
     assert db[0].postStateDistanceMetricVariables[0] == wildfireData.database[0].postStateDistanceMetricVariables[0]
 
 
 def test_initial_state():
-    wildfireData = WildfireData("synthesis_tests/wildfire_processed.csv")
+    wildfireData = WildfireData("synthesis_tests/wildfire_data/wildfire_processed.csv")
     state, isTerminal, possibleActions = wildfireData.s0()
     assert state[0] == 130.011288678, "actual: %s" % state[0]
     assert state[1] == 27.4871670222, "actual: %s" % state[1]

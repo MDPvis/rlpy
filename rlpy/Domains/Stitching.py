@@ -8,283 +8,18 @@ Synthesis of Artificial Trajectories <https://goo.gl/1yveeS>`_
 """
 
 from sklearn.neighbors import BallTree
-from scipy.optimize import minimize
-from scipy import linalg
 import numpy as np
 from .Domain import Domain
-import math
 import os.path
 import sys
 import pickle
-from rlpy.Domains.StitchingPackage.benchmark import Benchmark
 from rlpy.Domains.StitchingPackage.TransitionTuple import TransitionTuple
+from rlpy.Domains.StitchingPackage.MahalanobisDistance import MahalanobisDistance
 
 __copyright__ = "Copyright 2015, Sean McGregor"
 __credits__ = ["Sean McGregor"]
 __license__ = "BSD 3-Clause"
 __author__ = ["Sean McGregor"]
-
-class MahalanobisDistance(object):
-    """
-    A class for optimizing a Mahalanobis distance metric.
-    The metric is initialized to the identity matrix, which is equivalent to Euclidean distance.
-    Calling the "optimize" function with sets of rollouts attempts to update the
-    distance metric so that the objective function is minimized
-    http://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.spatial.distance.mahalanobis.html
-    """
-    def __init__(self,
-        var_count,
-        stitching,
-        target_policies=[],
-        normalize_starting_metric=True,
-        cached_metric=None):
-        """
-        :param var_count: The number of variables in the distance metric.
-        :param stitching: The Stitching class whose distance metric we are attempting to update.
-        :param target_rollouts: The rollouts whose distribution we are attempting to approximate.
-          These will be used to repeatedly evaluate the visual fidelity objective.
-        :param normalize_starting_metric: Determines whether we scale the metric by the magnitude of the variable's mean.
-        :param cached_metric: A pre-computed metric, probably loaded from a file.
-        """
-        if not (cached_metric is None):
-            self.distance_metric = cached_metric
-            #return # todo, am I supposed to remove this?
-        else:
-            self.distance_metric = np.identity(var_count)
-
-        self.stitching = stitching
-
-        self.target_policies = target_policies
-        self._sampleTargetTrajectories()
-
-        if normalize_starting_metric:
-            for idx, variable in enumerate(stitching.labels):
-                l = []
-                for rollout_set in self.target_rollouts:
-                    for rollout in rollout_set:
-                        for event in rollout:
-                            l.append(event[variable])
-                variance = Benchmark.variance(l)
-                if variance == 0:
-                    variance = 1.0
-                self.distance_metric[idx][idx] = 1.0/variance
-            if self.stitching.writeNormalizedMetric is not None:
-                f = open(self.stitching.writeNormalizedMetric, "wb")
-                met = pickle.dump(self.distance_metric, f)
-                f.close()
-
-        # The Powell optimizer needs a non-zero value to find the emprical gradient in log space
-        for idx, row in enumerate(self.distance_metric):
-            for idx2, column in enumerate(row):
-                if idx != idx2:
-                    pass
-                    # todo: additional analysis of this
-                    #self.distance_metric[idx][idx2] = .00000000000000001
-
-    def _sampleTargetTrajectories(self):
-        """
-        Assign the target trajectories and build the benchmark.
-        :param policies:
-        :return:
-        """
-        self.target_policies = self.stitching.targetPolicies
-        self.target_rollouts = []
-        for policy in self.target_policies:
-            t = self.stitching.getRollouts(
-                count=self.stitching.targetPoliciesRolloutCount,
-                horizon=self.stitching.horizon,
-                policy=policy,
-                domain=self.stitching.domain)
-            self.target_rollouts.append(t)
-
-        self.benchmarks = []
-        for idx, rollouts in enumerate(self.target_rollouts):
-            benchmark = Benchmark(rollouts, self.stitching.action_count, seed=0)
-            self.benchmarks.append(benchmark)
-
-    @staticmethod
-    def flatten(matrix):
-        """
-        Return the current distance metric as a single list of values.
-        """
-        flattened = []
-        for row in matrix:
-            for item in row:
-                flattened.append(item)
-        return flattened
-
-    @staticmethod
-    def unflatten(flat_metric):
-        """
-        Return the current distance metric as a list of lists.
-        """
-        length = int(math.sqrt(len(flat_metric))) # Get the size of the matrix
-        matrix = []
-        for i in range(length):
-            matrix.append([])
-        for idx, val in enumerate(flat_metric):
-            matrix[int(idx/length)].append(val)
-        return matrix
-
-    @staticmethod
-    def is_upper_triangular(matrix):
-        """
-        Checks whether all lower triangular values are zero.
-        Return True iff all lower triangular values are zero.
-        """
-        assert type(matrix[0]) == list
-        for row_idx, row in enumerate(matrix):
-            for col_idx, val in enumerate(row):
-                if row_idx > col_idx and val != 0:
-                    return False
-        return True
-
-    @staticmethod
-    def is_psd(matrix):
-        """
-        Checks whether the current matrix is positive semi-definite
-        by taking the Cholesky decomposition.
-        Returns True iff SciPy succeeds in taking the Cholesky decomp.
-        """
-        if type(matrix) == list:
-            matrix = np.array(matrix)
-        try:
-            L = linalg.cholesky(matrix, check_finite=True)
-        except linalg.LinAlgError:
-            return False
-        else:
-            return True
-
-    @staticmethod
-    def ceiling_exponentiate(flat_metric):
-        """
-        A list exponentiation function that maxes out at sys.float_info.max.
-        """
-        def new_exp(x):
-            try:
-                return math.exp(x)
-            except Exception:
-                if x < 0:
-                    return 0
-                else:
-                    return sys.float_info.max
-        return map(new_exp, flat_metric)
-
-    @staticmethod
-    def ceiling_logarithm(flat_metric):
-        """
-        Take the natural logarithm and allow zero values (give negative inf for zero values)
-        """
-        def new_log(x):
-            assert x >= 0
-            try:
-                return math.log(x)
-            except Exception:
-                if x == 0:
-                    return -sys.float_info.max
-                else:
-                    assert False # There should never be an under/over flow for this input
-        return map(new_log, flat_metric)
-
-    @staticmethod
-    def loss(flat_metric,
-             stitching,
-             benchmarks,
-             benchmark_rollout_count=50):
-        """
-        The function we are trying to minimize when updating the distance metric.
-        :param flat_metric: The metric represented as a list of values. This will be converted to
-          a matrix when computing distances.
-        :param stitching: The Stitching class whose distance metric we are attempting to update.
-        :param benchmarks: Instances of the Benchmark class.
-        :param self: A hack to make this staticmethod behave more like the MahalanobisDistance class.
-          Loss needs to be a static method for the minimization library, but we can still pass in
-          the MahalanobisDistance object as self.
-        """
-        old_tree = stitching.tree
-        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(flat_metric))
-        stitching.tree = BallTree(stitching.database, metric="mahalanobis", VI=np.array(matrix))
-
-        total_benchmark = 0
-
-        # Benchmark against the horizon and target policies of the stitching domain
-        rolloutCount = benchmark_rollout_count
-        if stitching.rolloutCount < benchmark_rollout_count:
-            pass
-            #rolloutCount = stitching.rolloutCount
-            #print "WARNING!!! You are attempting to find the loss for more trajectories than each DB policy generated"
-        horizon = stitching.horizon
-        policies = stitching.targetPolicies
-        for idx, policy in enumerate(policies):
-            benchmark = benchmarks[idx]
-            current_benchmark = 0.0
-            synthesized_rollouts = stitching.getRollouts(
-              count=rolloutCount,
-              horizon=horizon,
-              policy=policy,
-              domain=stitching)
-            for label in stitching.labels:
-                variable_benchmark = benchmark.benchmark_variable(synthesized_rollouts, label, square=True)
-                current_benchmark += variable_benchmark
-            action_benchmark = benchmark.benchmark_actions(synthesized_rollouts, square=True)
-            current_benchmark += action_benchmark
-            total_benchmark += current_benchmark # Square the loss from this policy
-        stitching.tree = old_tree
-
-        return total_benchmark
-
-    def optimize(self):
-        """
-        Optimize and save the distance metric in non-exponentiated form.
-        """
-
-        # The loss function will exponentiate the solution, so our starting point should
-        # be the natural log of the solution.
-        inverse_exponentiated = MahalanobisDistance.ceiling_logarithm(
-          MahalanobisDistance.flatten(self.distance_metric))
-
-        # todo: investigate whether saving in this manner is necessary by removing
-        # the save and running the tests
-        def print_and_save(vec):
-            loss = MahalanobisDistance.loss(
-                vec,
-                self.stitching, self.benchmarks)
-            print "==Optimization iteration complete=="
-            print vec
-            print "LOSS:"
-            print loss
-            if loss < print_and_save.best_loss:
-                print_and_save.best_loss = loss
-                print_and_save.best_parameters = vec
-
-        print_and_save.best_loss = float("Inf")
-        print_and_save.best_parameters = []
-
-        res = minimize(
-          MahalanobisDistance.loss,
-          inverse_exponentiated,
-          args=(self.stitching, self.benchmarks),
-          method="Powell",
-          tol=.000000001,
-          options={"disp": True},
-          callback=print_and_save)
-
-        print res
-
-        # The result was flattened, need to make square
-        matrix = MahalanobisDistance.unflatten(MahalanobisDistance.ceiling_exponentiate(print_and_save.best_parameters))
-
-        assert MahalanobisDistance.is_psd(matrix)
-        self.distance_metric = matrix
-
-    def get_matrix_as_np_array(self, matrix=None):
-        """
-        Return the current distance metric as a NumPy array.
-        """
-        if matrix:
-            return np.array(matrix)
-        else:
-            return np.array(self.distance_metric)
 
 class Stitching(Domain):
     """
@@ -317,7 +52,8 @@ class Stitching(Domain):
       labels = None,
       metricFile = None,
       optimizeMetric = True,
-      writeNormalizedMetric = None
+      writeNormalizedMetric = None,
+      initializeMetric = True
     ):
         """
         :param domain: The domain used to generate MC rollouts
@@ -374,7 +110,8 @@ class Stitching(Domain):
             self._populateDatabase()
 
         # Count the total number of state variables and discrete actions
-        metric_size = self.action_count + len(self.labels)  # actions and state variables
+        if initializeMetric:
+            metric_size = self.action_count + len(self.labels)  # actions and state variables
 
         # Check the cache for the metric file
         if metricFile and os.path.isfile(metricFile):
@@ -391,28 +128,23 @@ class Stitching(Domain):
                 cached_metric=met
             )
             f.close()
-        else:
+            self.setDatabase(self.database)
+        elif initializeMetric:
 
             self.mahalanobis_metric = MahalanobisDistance(metric_size, self, self.targetPolicies)
 
-            self.tree = BallTree(
-              self.database,
-              metric="mahalanobis",
-              VI=self.mahalanobis_metric.get_matrix_as_np_array())
+            self.setDatabase(self.database)
 
             if optimizeMetric:
                 self.optimize_metric()
 
-            # Cache the learned metric
-            if metricFile:
-                f = open(metricFile, "wb")
-                met = pickle.dump(self.mahalanobis_metric.distance_metric, f)
-                f.close()
+                # Cache the learned metric
+                if metricFile:
+                    f = open(metricFile, "wb")
+                    met = pickle.dump(self.mahalanobis_metric.distance_metric, f)
+                    f.close()
 
-        self.tree = BallTree(
-          self.database,
-          metric="mahalanobis",
-          VI=self.mahalanobis_metric.get_matrix_as_np_array())
+            self.setDatabase(self.database)
 
     def optimize_metric(self):
         """
@@ -427,6 +159,26 @@ class Stitching(Domain):
           self.database,
           metric="mahalanobis",
           VI=self.mahalanobis_metric.get_matrix_as_np_array())
+
+    def setDatabase(self, db):
+        """
+        Set the database and build the ball tree associated with it.
+        :param db:
+        :return:
+        """
+        self.database = db
+        self.tree = BallTree(
+            self.database,
+            metric="mahalanobis",
+            VI=self.mahalanobis_metric.get_matrix_as_np_array())
+
+    def setMetric(self, mahaMetric):
+        """
+        Set the metric associated with the database. You must rebuild the ball tree after setting the metric.
+        :param mahaMetric: An instance of the mahalanobis distance metric we want to assign.
+        :return:
+        """
+        self.mahalanobis_metric = mahaMetric
 
     def _populateDatabase(self):
         """
@@ -490,7 +242,7 @@ class Stitching(Domain):
         "{} points in a database of {} points. This failure occured when "\
         "attempting to generate rollout set {}".format(k, len(self.database), self.rolloutSetCounter))
 
-    def _getEqualTransitions(self, preStateDistanceMetricVariables, k):
+    def _getBiasSet(self, preStateDistanceMetricVariables, k):
         """
         Mark the K closest tuples as being expended after using the state from a different action.
         :param postStateDistanceMetricVariables: The current state of the world that we want the closest transition for.
@@ -500,29 +252,47 @@ class Stitching(Domain):
         q = list(preStateDistanceMetricVariables)
 
         k = min(k, len(self.database))
-        (distances_array, indices_array) = self.tree.query(q,
-                                                           k=k,
+        (indices_array, distances_array) = self.tree.query_radius(q,
+                                                           r=0.0,
                                                            return_distance=True,
-                                                           sort_results=True)
+                                                           sort_results=False,
+                                                           count_only=False)
 
-        for distance in distances_array:
-            assert distance == 0.0
+        for i in range(0,len(indices_array[0])):
+            selectedTransitionTuple = self.database[indices_array[0][i]]
+            if selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter:
+                selectedTransitionTupleIndex = i
+                break
+        assert selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter
+        initialEventID = selectedTransitionTuple.additionalState["initial event"]
+        action = selectedTransitionTuple.additionalState["action"]
+        timeStep = selectedTransitionTuple.additionalState["time step"]
+        for distances in distances_array:
+            for distance in distances:
+                assert distance == 0.0, "Distance was {}".format(distance)
 
-        nearbyActions = []
-        for idx in indices_array:
-            assert self.database[idx].visualizationStateVariables["action"] not in nearbyActions
-            nearbyActions.append(self.database[idx].visualizationStateVariables["action"])
+        # The set of transitions that were generated for this transition
+        biasCorrectedTransitionSet = [selectedTransitionTuple]
+        for idx in range(0,len(indices_array[0])):
+            if selectedTransitionTupleIndex == idx:
+                continue
+            cur = self.database[idx]
+            if cur.additionalState["initial event"] == initialEventID and cur.additionalState["time step"] == timeStep:
+                assert cur.additionalState["action"] != action
+                biasCorrectedTransitionSet.append(self.database[idx])
 
-        indices = indices_array[0]
-        transitions = []
-        for index, i in enumerate(indices):
-            assert self.database[i].last_accessed_iteration != self.rolloutSetCounter
-            self.database[i].last_accessed_iteration = self.rolloutSetCounter
-            transitions.append(self.database[i])
-        return transitions
+        for transition in biasCorrectedTransitionSet:
+            assert transition.last_accessed_iteration != self.rolloutSetCounter
+        return biasCorrectedTransitionSet
 
 
-    def getRollouts(self, count=10, horizon=10, policy=None, domain=None):
+    def getRollouts(self,
+                    count=10,
+                    horizon=10,
+                    policy=None,
+                    domain=None,
+                    biasCorrected=False,
+                    actionsInDistanceMetric=True):
         """
             Helper function for generating rollouts from all the domains.
             Args:
@@ -530,6 +300,8 @@ class Stitching(Domain):
                 horizon (integer): The maximum length of rollouts.
                 policy (function(state, actions)): The function used to select an action.
                 domain (Domain): The domain that will be called to generate rollouts.
+                biasCorrected (boolean): Indicates whether the database has additional samples to remove bias.
+                actionsInDistanceMetric (boolean): Indicates whether the actions are used in the distance metric.
         """
         if not domain:
             domain = self
@@ -551,14 +323,17 @@ class Stitching(Domain):
                 totalTransitions += 1
                 if type(domain).__name__ == "Stitching":
                     self.totalNonZeroStitches += 1
-                    r, ns, terminal, currentPossibleActions = domain.step(policy)
+                    r, ns, terminal, currentPossibleActions = domain.step(
+                        policy,
+                        biasCorrected=biasCorrected,
+                        actionsInDistanceMetric=actionsInDistanceMetric)
 
                     #state["stitch distance"] = self.lastStitchDistance
                     self.totalStitchingDistance += self.lastStitchDistance
 
                     state = {"action": self.lastEvaluatedAction, "reward": r}
                     assert state["action"] >= 0
-                    for label in self.labels:
+                    for label in ns.keys():
                         state[label] = ns[label]
                     rollout.append(state)
                 else:
@@ -582,10 +357,61 @@ class Stitching(Domain):
         """
         return self.currentPossibleActions
 
+    def _stepWithActionsInDistanceMetric(self, policy):
+        """
+        This will find the most related state+action in the database
+        :param policy:
+        :return:
+        """
+        pre = self.preStateDistanceMetricVariables.copy()
+        possibleActions = []
+        for idx in range(0,self.domain.actions_num):
+            possibleActions.append(idx)
+        action = policy(pre, self.currentPossibleActions)
+        self.lastEvaluatedAction = action
+        assert action >= 0
+        for idx, possibleAction in enumerate(possibleActions):
+            if action == idx:
+                pre = np.append(pre, 1.)
+            else:
+                pre = np.append(pre, 0.)
+        (postStitchObject, stitchDistance) = self._getClosest(pre)
+        self.lastStitchDistance = stitchDistance # because we can't change the return signature
+        postStitchObject.last_accessed_iteration = self.rolloutSetCounter # prohibit its use in this rollout set
+        assert stitchDistance >= 0
+        return postStitchObject
+
+    def _stepWithBiasCorrection(self, policy):
+        """
+        Generate a state transition and mark all states in the transition database that were added to correct its
+        bias. You can only use this step function if actions are not included in the distance metric.
+        :return:
+        """
+        pre = self.preStateDistanceMetricVariables
+        (postStitchObject, stitchDistance) = self._getClosest(pre)
+        self.lastStitchDistance = stitchDistance # because we can't change the return signature
+        assert stitchDistance >= 0
+
+        transitions = self._getBiasSet(postStitchObject, self.domain.actions_num)# remove bias corrected states
+        action = policy(None, [], transitionTuple=transitions[0])
+        assert action >= 0
+        for transition in transitions:
+            transition.last_accessed_iteration = self.rolloutSetCounter
+        for candidate in transitions:
+            if candidate.additionalState["action"] == action:
+                transition = candidate
+                break
+        self.lastEvaluatedAction = action
+        self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
+        r = transition.visualizationResultState["reward"]
+        self.currentPossibleActions = transition.possibleActions
+        self.terminal = transition.isTerminal
+        self.state = transition.visualizationResultState
+        return transition
+
     def step(self, policy, biasCorrected=False, actionsInDistanceMetric=True):
         """
-        Find the closest transition matching the policy, then find all the transitions matching the pre-state
-        and remove them from the database.
+        Find the closest transition matching the policy.
 
         biasCorrected (bool): Whether the database has sampled every action at every state in the database.
             This will determine whether we remove all matching states when we sample one.
@@ -594,35 +420,14 @@ class Stitching(Domain):
         """
         # We can't correct the bias if the actions are in the distance metric
         assert biasCorrected != actionsInDistanceMetric
-        pre = self.preStateDistanceMetricVariables.copy()
 
-        possibleActions = []
-        for idx in range(0,self.domain.actions_num):
-            possibleActions.append(idx)
         if actionsInDistanceMetric:
-            #action = policy(pre, possibleActions)
-            action = policy(pre, self.currentPossibleActions)
-            assert action >= 0
-            for idx, possibleAction in enumerate(possibleActions):
-                if action == idx:
-                    pre = np.append(pre, 1.)
-                else:
-                    pre = np.append(pre, 0.)
-        (postStitchObject, stitchDistance) = self._getClosest(pre)
-        self.lastStitchDistance = stitchDistance # because we can't change the return signature
-        assert stitchDistance >= 0
-
-        if biasCorrected:
-            transitions = self._getEqualTransitions(postStitchObject, len(possibleActions))# remove all exactly matching states to avoid bias
-            action = policy(postStitchObject.visualizationStateVariables, possibleActions)
-            assert action >= 0
-            for candidate in transitions:
-                if candidate.visualizationStateVariables["action"] == action:
-                    transition = candidate
-                    break
+            transition = self._stepWithActionsInDistanceMetric(policy)
+        elif biasCorrected:
+            transition = self._stepWithBiasCorrection(policy)
         else:
-            transition = postStitchObject
-        self.lastEvaluatedAction = action
+            assert False # Will eventually implement other cases
+
         self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
         r = transition.visualizationResultState["reward"]
         self.currentPossibleActions = transition.possibleActions
@@ -640,7 +445,9 @@ class Stitching(Domain):
         """
         self.partially_observed_state, self.terminal, self.currentPossibleActions = self.domain.s0()
         self.state = {} # There is no state until it is stitched and the complete state is recovered
-        if hasattr(self.domain, "INIT_STATE"):
+        if hasattr(self.domain, "getInitState"):
+            self.preStateDistanceMetricVariables = self.domain.getInitState().preStateDistanceMetricVariables
+        elif hasattr(self.domain, "INIT_STATE"):
             self.preStateDistanceMetricVariables = self.domain.INIT_STATE
         else:
             self.preStateDistanceMetricVariables = self.domain.start_state.copy()

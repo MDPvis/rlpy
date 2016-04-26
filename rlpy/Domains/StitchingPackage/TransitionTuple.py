@@ -5,8 +5,14 @@ class TransitionTuple(tuple):
     in the current post-transition state. The class contains properties not in the
     tuple:
     """
-    def __new__(cls, preStateDistanceMetricVariables, postStateDistanceMetricVariables,
-                isTerminal, isInitial, possibeActions, visualizationResultState=None):
+    def __new__(cls,
+                preStateDistanceMetricVariables,
+                postStateDistanceMetricVariables,
+                isTerminal,
+                isInitial,
+                possibeActions,
+                visualizationResultState=None,
+                additionalState=None):
         """
         :param cls: The _new_ constructor's version of `self`
         :param preStateDistanceMetricVariables: The state we might stitch to, this is also represented as a tuple.
@@ -18,6 +24,9 @@ class TransitionTuple(tuple):
         :param possibeActions: What actions can be taken in the resulting state.
         :param visualizationResultState: The variables the stitching domain are attempting to approximate.
           These can include actions if we are trying to approximate action distributions.
+        :param additionalState: The state variables that are not visualized and are not part of the distance metric.
+          These are often used for experimental purposes, like excluding database entries that were generated
+          under a particular policy.
         :return: this extended tuple
         """
         t = tuple.__new__(cls, tuple(preStateDistanceMetricVariables))
@@ -27,5 +36,6 @@ class TransitionTuple(tuple):
         t.isInitial = isInitial
         t.possibleActions = possibeActions
         t.visualizationResultState = visualizationResultState
+        t.additionalState = additionalState
         t.last_accessed_iteration = -1 # determines whether it is available for stitching
         return t

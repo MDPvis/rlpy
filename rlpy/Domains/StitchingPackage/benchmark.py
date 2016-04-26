@@ -29,7 +29,12 @@ class Benchmark(object):
     (d) = (c)*||MC quantile-MFMC quantile/(a)||
     """
 
-    def __init__(self, base_rollouts, action_count, quantiles=[0,10,20,30,40,50,60,70,80,90,100], seed=0):
+    def __init__(self,
+                 base_rollouts,
+                 action_count,
+                 quantiles=[0,10,20,30,40,50,60,70,80,90,100],
+                 seed=0,
+                 benchmarkActions=True):
         """
         Create data structures for scaling each of the contribution to the objective
         functions according to the visualization size and variance of the values.
@@ -53,7 +58,9 @@ class Benchmark(object):
         self.random_state = np.random.RandomState(seed)
 
         variable_names = self.base_rollouts[0][0].keys()
-        variable_names.remove("action")
+
+        if benchmarkActions:
+            variable_names.remove("action")
 
         # Store the bootstrap estimates of the variance
         self.bootstrap_variables = collections.defaultdict(lambda : collections.defaultdict(dict))
@@ -63,11 +70,13 @@ class Benchmark(object):
                 for event_number in range(0, max_event_number):
                     variance = self.bootstrap_variable(variable_name, event_number, quantile_number)
                     self.bootstrap_variables[variable_name][event_number][quantile_number] = variance
-        self.bootstrap_actions = collections.defaultdict(dict)
-        for action_number in range(0, action_count):
-            for event_number in range(0, max_event_number):
-                variance = self.bootstrap_action(event_number, action_number)
-                self.bootstrap_actions[action_number][event_number] = variance
+
+        if benchmarkActions:
+            self.bootstrap_actions = collections.defaultdict(dict)
+            for action_number in range(0, action_count):
+                for event_number in range(0, max_event_number):
+                    variance = self.bootstrap_action(event_number, action_number)
+                    self.bootstrap_actions[action_number][event_number] = variance
 
         # Store the selected quantiles within the MC rollouts
         self.mc_variable_quantiles = collections.defaultdict(lambda : collections.defaultdict(dict))
@@ -80,16 +89,18 @@ class Benchmark(object):
                 for quantile in quantiles:
                     quantile_value = base[int(quantile/100.*(len(base)-1))][event_number][variable_name]
                     self.mc_variable_quantiles[variable_name][event_number][quantile] = quantile_value
-        self.mc_action_quantiles = collections.defaultdict(dict)
-        for event_number in range(0, max_event_number):
-            filter_function = lambda elem: len(elem) > event_number
-            filtered_base_rollouts = filter(filter_function, self.base_rollouts)
-            number_of_actions_taken = len(filtered_base_rollouts)
-            target_action_counts = [0] * self.action_count
-            for rollout in filtered_base_rollouts:
-                target_action_counts[rollout[event_number]["action"]] += 1
-            for action_idx, action_counter in enumerate(target_action_counts):
-                self.mc_action_quantiles[event_number][action_idx] = float(action_counter)/float(number_of_actions_taken)
+
+        if benchmarkActions:
+            self.mc_action_quantiles = collections.defaultdict(dict)
+            for event_number in range(0, max_event_number):
+                filter_function = lambda elem: len(elem) > event_number
+                filtered_base_rollouts = filter(filter_function, self.base_rollouts)
+                number_of_actions_taken = len(filtered_base_rollouts)
+                target_action_counts = [0] * self.action_count
+                for rollout in filtered_base_rollouts:
+                    target_action_counts[rollout[event_number]["action"]] += 1
+                for action_idx, action_counter in enumerate(target_action_counts):
+                    self.mc_action_quantiles[event_number][action_idx] = float(action_counter)/float(number_of_actions_taken)
 
         # The qauntiles that will be shown to the user
         max_quantile = max(quantiles)
@@ -120,13 +131,15 @@ class Benchmark(object):
                     viewport = self.viewport_variables[variable_name]
                     correction = math.exp(-sd/viewport)
                     self.variance_correction_variables[variable_name][event_number][quantile_number] = correction
-        self.variance_correction_actions = collections.defaultdict(dict)
-        for action_number in range(0, action_count):
-            for event_number in range(0, max_event_number):
-                sd = math.sqrt(self.bootstrap_actions[action_number][event_number])
-                viewport = 1
-                correction = math.exp(-sd/viewport)
-                self.variance_correction_actions[action_number][event_number] = correction
+
+        if benchmarkActions:
+            self.variance_correction_actions = collections.defaultdict(dict)
+            for action_number in range(0, action_count):
+                for event_number in range(0, max_event_number):
+                    sd = math.sqrt(self.bootstrap_actions[action_number][event_number])
+                    viewport = 1.0
+                    correction = math.exp(-sd/viewport)
+                    self.variance_correction_actions[action_number][event_number] = correction
 
         # Store the value to multiply each quantile shift by: variance_correction/viewport
         self.objective_scale_variables = collections.defaultdict(lambda : collections.defaultdict(dict))
@@ -135,11 +148,13 @@ class Benchmark(object):
                 for event_number in range(0, max_event_number):
                     scale = self.variance_correction_variables[variable_name][event_number][quantile_number]/self.viewport_variables[variable_name]
                     self.objective_scale_variables[variable_name][event_number][quantile_number] = scale
-        self.objective_scale_actions = collections.defaultdict(dict)
-        for action_number in range(0, action_count):
-            for event_number in range(0, max_event_number):
-                scale = self.variance_correction_actions[action_number][event_number]/1.0
-                self.objective_scale_actions[action_number][event_number] = scale
+
+        if benchmarkActions:
+            self.objective_scale_actions = collections.defaultdict(dict)
+            for action_number in range(0, action_count):
+                for event_number in range(0, max_event_number):
+                    scale = self.variance_correction_actions[action_number][event_number]/1.0
+                    self.objective_scale_actions[action_number][event_number] = scale
 
     @staticmethod
     def variance(l):

@@ -47,7 +47,8 @@ def test_post_processing():
         assert row[2] == "Canopy Height start", "the third header was %s" % row[2]
         row = reader.next()
         assert row[0] == "130.011288678", "the first value was %s" % row[0]
-        assert row[-2] == "4", "the last value was %s" % row[-1]
+        assert row[-3] == "26", "the penultimate value was %s" % row[-3]
+        assert row[-2] == "1000", "the last value was %s" % row[-2]
 
 def test_builds_state_summary():
     """

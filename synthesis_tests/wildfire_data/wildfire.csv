@@ -1,3 +1,9 @@
-infile,outfile,column 1, column 2, column 3, column 4
-synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,1,2,3,4
-synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,5,6,7,8
+infile,outfile,column 1, column 2, column 3, column 4, ercPolicyParameter, timePolicyParameter, time step, initial event, action, erc, time until end, reward, on policy
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,1,2,3,4,50,25,1,1,1,51,26,1000,1
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,5,6,7,8,50,25,2,1,1,51,26,2000,1
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,1,2,3,4,40,25,1,1,1,51,26,3000,1
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,5,6,7,8,40,25,2,1,1,51,26,4000,1
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,1,2,3,4,50,25,1,1,0,51,26,5000,0
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,5,6,7,8,50,25,2,1,0,51,26,6000,0
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,1,2,3,4,40,25,1,1,0,51,26,7000,0
+synthesis_tests/compressed.lcpz.bz2,synthesis_tests/compressed.lcpz.bz2,5,6,7,8,40,25,2,1,0,51,26,8000,0

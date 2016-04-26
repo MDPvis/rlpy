@@ -30,6 +30,74 @@ class WildfireData(Domain):
       International Journal of Wildland Fire, 22(7), 871-882.
     """
 
+    # All the variables that could be used in stitching
+    ALL_STITCHING_VARIABLES = [
+        "Fuel Model start",
+        "Canopy Closure start",
+        "Canopy Height start",
+        "Canopy Base Height start",
+        "Canopy Bulk Density start",
+        "Covertype start",
+        "Stand Density Index start",
+        "Succession Class start",
+        "Maximum Time in State start",
+        "Stand Volume Age start",
+        "column 1",
+        "column 2",
+        "column 3",
+        "column 4"
+    ]
+
+    # The variables that correspond to the variables in ALL_STITCHING_VARIABLES
+    POST_TRANSITION_VARIABLES = [
+        "Fuel Model end",
+        "Canopy Closure end",
+        "Canopy Height end",
+        "Canopy Base Height end",
+        "Canopy Bulk Density end",
+        "Covertype end",
+        "Stand Density Index end",
+        "Succession Class end",
+        "Maximum Time in State end",
+        "Stand Volume Age end",
+        "column 1", # This is a hack that results in saying "column 1" starts and ends with the same value
+        "column 2",
+        "column 3",
+        "column 4"
+    ]
+
+    # The variables to use for stitching if we care most about performance (landscape variables)
+    BEST_STITCHING_VARIABLES = [
+        "Fuel Model start",
+        "Canopy Closure start",
+        "Canopy Height start",
+        "Canopy Base Height start",
+        "Canopy Bulk Density start",
+        "Covertype start",
+        "Stand Density Index start",
+        "Succession Class start",
+        "Maximum Time in State start",
+        "Stand Volume Age start"
+    ]
+
+    # All the variables we visualize
+    VISUALIZATION_VARIABLES = [
+        "column 1",
+        "column 2",
+        "column 3",
+        "column 4",
+        "reward"
+    ]
+
+    # All the variables we use in the policy function
+    POLICY_VARIABLES = [
+        "ERC",
+        "Time Until End of Fire Season"
+    ]
+
+    # A list of tuples that are initial states. These will be drawn with uniform probability
+    init_state_tuples = []
+
     actions_num = 2
     state_space_dims = 2
     continuous_dims = [0, 1]
@@ -50,35 +118,59 @@ class WildfireData(Domain):
     state = {"todo":-99999} # todo: specify all the state variables that will be visualized
     database = {}
 
-    def __init__(self, databaseCSV):
+    def __init__(self,
+                 databaseCSV,
+                 stitchingVariables=ALL_STITCHING_VARIABLES,
+                 visualizationVariables=VISUALIZATION_VARIABLES):
         """
         Load data from the database's CSV file.
         """
         self.database = []
         self.DimNames = []
+        self.VISUALIZATION_VARIABLES = visualizationVariables
+
+        np.random.seed(0)
 
         with open(databaseCSV, 'rb') as csvfile:
             transitions = csv.reader(csvfile, delimiter=',')
             row = transitions.next()
-            for header in row:
-                if header:
-                    self.DimNames.append(header.strip())
+            header = []
+            for headerValue in row:
+                if headerValue:
+                    self.DimNames.append(headerValue.strip())
+                    header.append(headerValue.strip())
             for row in transitions:
                 del row[-1]
                 parsedRow = map(float, row)
-                state = parsedRow[0:10]
-                ns = parsedRow[11:21]
-                visualizationState = parsedRow
+                state = []
+                ns = []
+                visualizationState = {}
+                additionalState = {}
+                for idx, headerValue in enumerate(header):
+                    if headerValue not in stitchingVariables and headerValue not in visualizationVariables:
+                        additionalState[headerValue] = parsedRow[idx]
+                for stitchingVariableIdx, variable in enumerate(stitchingVariables):
+                    stateIndex = header.index(variable)
+                    state.append(parsedRow[stateIndex])
+                    nsIndex = header.index(self.POST_TRANSITION_VARIABLES[stitchingVariableIdx])
+                    ns.append(parsedRow[nsIndex])
+                for variable in visualizationVariables:
+                    visualizationStateIndex = header.index(variable)
+                    visualizationState[variable] = parsedRow[visualizationStateIndex]
                 terminal = False # no states are terminal
-                isInitial = False # there is only one initial state, which we will hard code construct
+                isInitial = (additionalState["time step"] == 1)
+                assert len(state) == len(ns)
                 t = TransitionTuple(
                     state,
                     ns,
                     terminal,
                     isInitial,
                     [0,1],
-                    visualizationState
+                    visualizationState,
+                    additionalState
                 )
+                if isInitial:
+                    self.init_state_tuples.append(t)
                 self.database.append(t)
 
         #super(WildfireData, self).__init__()
@@ -170,6 +262,47 @@ class WildfireData(Domain):
                     out.write(elem + ",")
                 out.write("\n")
 
+    def getInitState(self):
+        """
+        Get a state that was marked as an initial state in the database. This will not mark the state as being used
+        as a transition in the rollout set.
+        :return: TransitionTuple
+        """
+        i = np.random.choice(len(self.init_state_tuples))
+        return self.init_state_tuples[i]
+
+
+    def getTargetRollouts(self, ercPolicyParameter, timePolicyParameter):
+        """
+        Return all the rollouts generated under a particular policy. This returns rollouts that are correct in
+        distribution, but the states that are stitched together
+        :param policy:
+        :return:
+        """
+
+        targetRollouts = []
+        def arbitraryAppend(transition, targetRollouts=targetRollouts):
+            timeStep = int(transition.additionalState["time step"])
+            while len(targetRollouts) < timeStep:
+                targetRollouts.append([])
+            targetRollouts[timeStep-1].append(transition)
+        for transition in self.database:
+            ercParameter = int(transition.additionalState["ercPolicyParameter"])
+            timeParameter = int(transition.additionalState["timePolicyParameter"])
+            if ercParameter == ercPolicyParameter and timeParameter == timePolicyParameter:
+                arbitraryAppend(transition)
+        trajectories = []
+
+        # While rollouts remain
+        while len(targetRollouts[0]):
+            trajectory = []
+            for eventsForTimestep in targetRollouts:
+                state = eventsForTimestep[-1].visualizationResultState
+                trajectory.append(state)
+                eventsForTimestep.pop()
+            trajectories.append(trajectory)
+
+        return trajectories
 
     def getDatabase(self):
         """
@@ -177,6 +310,20 @@ class WildfireData(Domain):
           Stitching class.
         """
         return self.database
+
+    def getDatabaseWithoutTargetSeverityPolicy(self, ercPolicyParameter, timePolicyParameter):
+        """
+        :return: The database used for trajectory synthesis. This should be in the format expected by the
+          Stitching class.
+        """
+        sansTarget = []
+        for transition in self.database:
+            ercParameter = transition.additionalState["ercPolicyParameter"]
+            timeParameter = transition.additionalState["timePolicyParameter"]
+            if ercParameter != ercPolicyParameter or timeParameter != timePolicyParameter:
+                sansTarget.append(transition)
+        return sansTarget
+
 
     def step(self, a):
         """

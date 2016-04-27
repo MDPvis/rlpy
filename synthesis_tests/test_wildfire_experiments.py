@@ -8,6 +8,7 @@ import experiments.regression
 import experiments.sample_size_bias
 import experiments.structural_bias
 import experiments.other_policies
+import rlpy.Domains.StitchingPackage.benchmark
 from rlpy.Domains.WildfireData import WildfireData
 import pickle
 
@@ -92,22 +93,120 @@ def test_wildfire_produce_metrics_feature_selection():
     csvFilePath = "synthesis_tests/wildfire_data/wildfire_metric_performances.csv"
     experiments.produce_metrics.featureSelection(wildfireData, varianceDictionary, csvFilePath)
 
+    initialMean = 15.2274446578
+
+    means = [
+        6.842829302,
+        13.97523857,
+        13.97523857,
+        13.97523857,
+        13.97523857,
+        15.22744466,
+        15.22744466,
+        15.22744466,
+        15.22744466,
+        15.22744466,
+        13.97523857,
+        15.22744466,
+        13.97523857
+    ]
+
     with open(csvFilePath, 'rb') as csvfile:
         results = csv.reader(csvfile, delimiter=',')
-        for row in results:
-            #row = results.next()
+        row = results.next()
+        mean = float(row[1])
+        variance = float(row[2])
+        length = int(row[3])
+        assert mean == initialMean, "Mean was {}".format(mean)
+        assert variance == 0.0, "Mean was {}".format(variance)
+        assert length == 14, "Mean was {}".format(length)
+        for mean in means:
+            row = results.next()
             mean = float(row[1])
             variance = float(row[2])
             length = int(row[3])
-            assert mean == 6.26948074631, "Mean was {}".format(mean)
-            assert variance == 0.0, "Mean was {}".format(variance)
-            assert length == 14, "Mean was {}".format(length)
+            assert mean == mean, "Mean was {}".format(mean)
+            assert variance == 0.0, "Variance was {}".format(variance)
+            assert length == 13, "Length was {}".format(length)
 
 def test_wildfire_regression():
     assert False
 
 def test_wildfire_sample_size_bias():
-    assert False
+    """
+    Test the bias introduced as the number of samples increases. This does not currently have any assertions,
+    so it is more of a smoke test.
+    :return:
+    """
+    databaseCSVPath = "synthesis_tests/wildfire_data/wildfire_hand_constructed.csv"
+    wildfireData = WildfireData(databaseCSVPath)
+    stitchingVariables = [
+        "Fuel Model start",
+        "Canopy Closure start",
+        "Canopy Height start",
+        "Canopy Base Height start",
+        "Canopy Bulk Density start",
+        "Covertype start",
+        "Stand Density Index start",
+        "Succession Class start",
+        "Maximum Time in State start",
+        "Stand Volume Age start"
+    ]
+
+    # Update all the transition tuples in the database
+    wildfireData.populateDatabase(
+        stitchingVariables=stitchingVariables,
+        visualizationVariables=wildfireData.VISUALIZATION_VARIABLES)
+
+
+    inputVariancesPath = "synthesis_tests/wildfire_data/wildfire_variances_hand_constructed.pkl"
+    inputVariances = file(inputVariancesPath, "rb")
+    varianceDictionary = pickle.load(inputVariances)
+    outputCSVFilePath = "synthesis_tests/wildfire_data/sample_size_bias.csv"
+    outCSVFile = file(outputCSVFilePath, "wb")
+
+    stitchingDomain = rlpy.Domains.Stitching(wildfireData,
+                                             rolloutCount = 0,
+                                             horizon = 100,
+                                             databasePolicies = [],
+                                             targetPolicies = [],
+                                             targetPoliciesRolloutCount = 0,
+                                             stitchingToleranceSingle = .1,
+                                             stitchingToleranceCumulative = .1,
+                                             seed = None,
+                                             database = None,
+                                             labels = None,
+                                             metricFile = None,
+                                             optimizeMetric = False,
+                                             writeNormalizedMetric = None,
+                                             initializeMetric = False)
+
+    policies = []
+    policyValues = []
+    for targetPolicyERC in experiments.wildfire_policy_functions.databasePolicyParameters["ercThreshold"]:
+        for targetPolicyTime in experiments.wildfire_policy_functions.databasePolicyParameters["timeUntilEndOfFireSeasonThreshold"]:
+            policyValues.append([targetPolicyERC, targetPolicyTime])
+            policies.append(experiments.wildfire_policy_functions.wildfirePolicySeverityFactory(targetPolicyERC, targetPolicyTime))
+
+    benchmarks = []
+    for policyValue in policyValues:
+        base_rollouts = wildfireData.getTargetRollouts(policyValue[0], policyValue[1])
+        current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
+        benchmarks.append(current)
+
+    for sampleCount in [2]:
+
+        experiments.sample_size_bias.visualFidelityError(
+            sampleCount,
+            wildfireData,
+            varianceDictionary,
+            stitchingDomain,
+            outCSVFile,
+            benchmarks,
+            stitchingVariables,
+            policyValues,
+            policies,
+            horizon=2)
 
 def test_wildfire_structural_bias():
     assert False

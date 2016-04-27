@@ -8,7 +8,7 @@ The landscape-only metrics are numbered |variables|*1000.
 __author__ = "Sean McGregor"
 from rlpy.Domains import WildfireData
 from rlpy.Domains import Stitching as Stitching
-from experiments.wildfire_policy_functions import wildfirePolicySeverityFactory
+from experiments.wildfire_policy_functions import wildfirePolicySeverityFactory, databasePolicyParameters
 import numpy as np
 import os
 import pickle
@@ -65,18 +65,15 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
 
     policies = []
     policyValues = []
-    #for targetPolicyERC in [15,35,55,75,95]:
-    #    for targetPolicyTime in [5,45,85,125,165]:
-    for targetPolicyERC in [50]:
-        for targetPolicyTime in [25]:
+    # todo: when doing the actual experiments, these values should be associated with the sampled policies:
+    for targetPolicyERC in databasePolicyParameters["ercThreshold"]:
+        for targetPolicyTime in databasePolicyParameters["timeUntilEndOfFireSeasonThreshold"]:
             policyValues.append([targetPolicyERC, targetPolicyTime])
             policies.append(wildfirePolicySeverityFactory(targetPolicyERC, targetPolicyTime))
 
     benchmarks = []
     for policyValue in policyValues:
         base_rollouts = wildfireData.getTargetRollouts(policyValue[0], policyValue[1])
-        print "base rollouts:"
-        print base_rollouts
         current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
         benchmarks.append(current)
 
@@ -93,6 +90,11 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
         :return:
         """
         benchmarkSample = []
+
+        # Update all the transition tuples in the database
+        wildfireData.populateDatabase(
+            stitchingVariables=stitchingVariables,
+            visualizationVariables=wildfireData.VISUALIZATION_VARIABLES)
         for idx,policyValue in enumerate(policyValues):
             db = wildfireData.getDatabaseWithoutTargetSeverityPolicy(policyValue[0], policyValue[1])
             var_count = len(stitchingVariables)
@@ -124,7 +126,6 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
                 biasCorrected=True,
                 actionsInDistanceMetric=False)
             total = 0
-            print rollouts
             for variable in stitchingDomain.domain.VISUALIZATION_VARIABLES:
                 total += benchmarks[idx].benchmark_variable(rollouts, variable)
             benchmarkSample.append(total)
@@ -134,7 +135,7 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
         for variable in stitchingVariables:
             outFile.write(variable + "|")
         outFile.write(",")
-        outFile.write("{},{},{}".format(mean, variance, len(stitchingVariables)))
+        outFile.write("{},{},{}\n".format(mean, variance, len(stitchingVariables)))
         return mean
 
     def minStep(stitchingVariables):
@@ -149,19 +150,14 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
             bench = benchmark(potentialDistanceMetricVariables)
             if bench < minBench:
                 minBench = bench
-                ret = currentDistanceMetricVariables[0:idx] + currentDistanceMetricVariables[idx+1:len(currentDistanceMetricVariables)]
+                ret = stitchingVariables[0:idx] + stitchingVariables[idx+1:len(currentDistanceMetricVariables)]
         return ret
 
     currentDistanceMetricVariables = wildfireData.ALL_STITCHING_VARIABLES
     nextDistanceMetricVariables = currentDistanceMetricVariables
     benchmark(nextDistanceMetricVariables)
 
-
-    # todo: this is currently not updating the tuples to have fewer stitching variables when doing the greedy search.
-    #       this won't work until then.
-    return
-    """
-    while len(nextDistanceMetricVariables) > 0:
+    while len(nextDistanceMetricVariables) > 1:
         nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
 
     currentDistanceMetricVariables = [
@@ -177,11 +173,10 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
         "Stand Volume Age start"
     ]
     nextDistanceMetricVariables = currentDistanceMetricVariables
-    while len(nextDistanceMetricVariables) > 0:
+    while len(nextDistanceMetricVariables) > 1:
         nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
 
     outFile.close()
-    """
 
 if __name__ == "__main__":
     assert False # todo: change to the proper databaseCSVPath and outputVariancesPath

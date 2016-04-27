@@ -116,7 +116,7 @@ class WildfireData(Domain):
         263.886173989])
     actions = [0, 1] # Let burn, suppress
     state = {"todo":-99999} # todo: specify all the state variables that will be visualized
-    database = {}
+    database = []
 
     def __init__(self,
                  databaseCSV,
@@ -125,13 +125,28 @@ class WildfireData(Domain):
         """
         Load data from the database's CSV file.
         """
+        np.random.seed(0)
+        self.databaseCSV = databaseCSV
+        self.populateDatabase(
+            stitchingVariables=stitchingVariables,
+            visualizationVariables=visualizationVariables)
+
+        #super(WildfireData, self).__init__()
+
+    def populateDatabase(
+            self,
+            stitchingVariables=ALL_STITCHING_VARIABLES,
+            visualizationVariables=VISUALIZATION_VARIABLES):
+        """
+        Replace the current database with a new database defined on the parameters.
+
+        :return: self.database
+        """
         self.database = []
         self.DimNames = []
+        self.init_state_tuples = []
         self.VISUALIZATION_VARIABLES = visualizationVariables
-
-        np.random.seed(0)
-
-        with open(databaseCSV, 'rb') as csvfile:
+        with open(self.databaseCSV, 'rb') as csvfile:
             transitions = csv.reader(csvfile, delimiter=',')
             row = transitions.next()
             header = []
@@ -172,8 +187,6 @@ class WildfireData(Domain):
                 if isInitial:
                     self.init_state_tuples.append(t)
                 self.database.append(t)
-
-        #super(WildfireData, self).__init__()
 
     @staticmethod
     def lcpStateSummary(landscapeFileName, DISTANCE_METRIC_VARIABLES=None):

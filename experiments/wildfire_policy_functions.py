@@ -2,6 +2,13 @@
 A set of policy functions used to evaluate visual fidelity.
 """
 
+databasePolicyParameters = {
+    "ercThreshold": [50], # todo, change to real values
+    "timeUntilEndOfFireSeasonThreshold": [25], # todo, change to real values
+    "leftBoundary": [], # todo, change to real values
+    "topBoundary": [] # todo, change to real values
+}
+
 def wildfirePolicySeverityFactory(ercThreshold, timeUntilEndOfFireSeasonThreshold):
     """
     Gives a policy function defined on the two parameters.

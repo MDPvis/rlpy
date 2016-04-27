@@ -257,32 +257,39 @@ class Stitching(Domain):
                                                            return_distance=True,
                                                            sort_results=False,
                                                            count_only=False)
-
         for i in range(0,len(indices_array[0])):
             selectedTransitionTuple = self.database[indices_array[0][i]]
             if selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter:
-                selectedTransitionTupleIndex = i
+                selectedTransitionTupleIndex = indices_array[0][i]
                 break
         assert selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter
         initialEventID = selectedTransitionTuple.additionalState["initial event"]
         action = selectedTransitionTuple.additionalState["action"]
         timeStep = selectedTransitionTuple.additionalState["time step"]
+        ercPolicyParameter = selectedTransitionTuple.additionalState["ercPolicyParameter"]
+        timePolicyParameter = selectedTransitionTuple.additionalState["timePolicyParameter"]
         for distances in distances_array:
             for distance in distances:
                 assert distance == 0.0, "Distance was {}".format(distance)
 
         # The set of transitions that were generated for this transition
         biasCorrectedTransitionSet = [selectedTransitionTuple]
-        for idx in range(0,len(indices_array[0])):
+        for i in range(0,len(indices_array[0])):
+            idx = indices_array[0][i]
             if selectedTransitionTupleIndex == idx:
                 continue
             cur = self.database[idx]
-            if cur.additionalState["initial event"] == initialEventID and cur.additionalState["time step"] == timeStep:
+            if cur.additionalState["initial event"] == initialEventID and\
+                cur.additionalState["time step"] == timeStep and\
+                cur.additionalState["ercPolicyParameter"] == ercPolicyParameter and\
+                cur.additionalState["timePolicyParameter"] == timePolicyParameter:
                 assert cur.additionalState["action"] != action
                 biasCorrectedTransitionSet.append(self.database[idx])
 
         for transition in biasCorrectedTransitionSet:
             assert transition.last_accessed_iteration != self.rolloutSetCounter
+        assert len(biasCorrectedTransitionSet) == self.domain.actions_num,\
+            "The bias correction does not equal the number of actions, {}".format(len(biasCorrectedTransitionSet))
         return biasCorrectedTransitionSet
 
 
@@ -458,3 +465,7 @@ class Stitching(Domain):
         :return: ``True`` if the agent has reached or exceeded the goal position.
         """
         return self.terminal
+
+
+# todo: add variables to the landscape-based metric incrementally that give the most improvement in the visual fidelity
+#       this will examine the question from the other direction

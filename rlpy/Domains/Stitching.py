@@ -146,7 +146,7 @@ class Stitching(Domain):
 
             self.setDatabase(self.database)
 
-    def optimize_metric(self):
+    def optimize_metric(self, benchmark_rollout_count=50):
         """
         Update the mahalanobis metric by attempting to optimize it
         for the already defined target rollouts, database, and policies.
@@ -154,7 +154,7 @@ class Stitching(Domain):
         want better performance, but expect it to take a while to find a
         better metric.
         """
-        self.mahalanobis_metric.optimize()
+        self.mahalanobis_metric.optimize(benchmark_rollout_count=benchmark_rollout_count)
         self.tree = BallTree(
           self.database,
           metric="mahalanobis",
@@ -370,7 +370,7 @@ class Stitching(Domain):
         :param policy:
         :return:
         """
-        pre = self.preStateDistanceMetricVariables.copy()
+        pre = self.preStateDistanceMetricVariables
         possibleActions = []
         for idx in range(0,self.domain.actions_num):
             possibleActions.append(idx)
@@ -410,11 +410,46 @@ class Stitching(Domain):
                 break
         self.lastEvaluatedAction = action
         self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
-        r = transition.visualizationResultState["reward"]
         self.currentPossibleActions = transition.possibleActions
         self.terminal = transition.isTerminal
         self.state = transition.visualizationResultState
         return transition
+
+    def _stepWithoutBiasCorrection(self, policy, k=1):
+        """
+        Generate a state transition and mark all states in the transition database that were added to correct its
+        bias. You can only use this step function if actions are not included in the distance metric.
+        :return:
+        """
+        pre = self.preStateDistanceMetricVariables
+        q = list(pre)
+        k = min(k, len(self.database))
+        (distances_array, indices_array) = self.tree.query(q,
+                                                           k=k,
+                                                           return_distance=True,
+                                                           sort_results=True)
+        for i in range(0,len(indices_array[0])):
+            selectedTransitionTuple = self.database[indices_array[0][i]]
+            action = selectedTransitionTuple.additionalState["action"]
+            print action == policy(None, [], transitionTuple=selectedTransitionTuple)
+            if selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter and \
+                    action == policy(None, [], transitionTuple=selectedTransitionTuple):
+                assert selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter
+                self.lastStitchDistance = distances_array[0][i] # because we can't change the return signature
+                assert self.lastStitchDistance >= 0
+                selectedTransitionTuple.last_accessed_iteration = self.rolloutSetCounter
+                self.lastEvaluatedAction = action
+                self.preStateDistanceMetricVariables = selectedTransitionTuple.postStateDistanceMetricVariables
+                self.currentPossibleActions = selectedTransitionTuple.possibleActions
+                self.terminal = selectedTransitionTuple.isTerminal
+                self.state = selectedTransitionTuple.visualizationResultState
+                return selectedTransitionTuple
+
+        if len(self.database) == k:
+            assert False, "No points could be found within {} points in the database".format(k)
+        else:
+            return self._stepWithoutBiasCorrection(policy, k=(k*10))
+
 
     def step(self, policy, biasCorrected=False, actionsInDistanceMetric=True):
         """
@@ -426,14 +461,14 @@ class Stitching(Domain):
             actions. This will force the policy to be evaluated before stitching.
         """
         # We can't correct the bias if the actions are in the distance metric
-        assert biasCorrected != actionsInDistanceMetric
+        assert biasCorrected != actionsInDistanceMetric or (biasCorrected == False and actionsInDistanceMetric == False)
 
         if actionsInDistanceMetric:
             transition = self._stepWithActionsInDistanceMetric(policy)
         elif biasCorrected:
             transition = self._stepWithBiasCorrection(policy)
         else:
-            assert False # Will eventually implement other cases
+            transition = self._stepWithoutBiasCorrection(policy)
 
         self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
         r = transition.visualizationResultState["reward"]

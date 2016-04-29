@@ -32,7 +32,8 @@ def test_initialization_of_mahalanobis_distance():
       horizon=database_horizon,
       databasePolicies=[policy],
       seed = 0,
-      labels=["x","xdot"])
+      labels=["x","xdot"],
+      initializeMetric=False)
 
     # get the metric
     distance = MahalanobisDistance(
@@ -87,8 +88,9 @@ def test_updated_distance_metric_does_not_have_worse_performance():
     starting_loss = MahalanobisDistance.loss(
         flat_metric,
         synthesis_domain,
-        synthesis_domain.mahalanobis_metric.benchmarks)
-    synthesis_domain.optimize_metric()
+        synthesis_domain.mahalanobis_metric.benchmarks,
+        benchmark_rollout_count=5)
+    synthesis_domain.optimize_metric(benchmark_rollout_count=5)
     matrix_metric_2 = synthesis_domain.mahalanobis_metric.get_matrix_as_np_array()
     flat_metric = []
     for row in matrix_metric_2:
@@ -97,7 +99,8 @@ def test_updated_distance_metric_does_not_have_worse_performance():
     optimized_loss = MahalanobisDistance.loss(
         flat_metric,
         synthesis_domain,
-        synthesis_domain.mahalanobis_metric.benchmarks)
+        synthesis_domain.mahalanobis_metric.benchmarks,
+        benchmark_rollout_count=5)
 
     assert optimized_loss <= starting_loss, "Optimized loss ({}) is worse than starting loss ({})".format(optimized_loss, starting_loss)
 
@@ -124,7 +127,9 @@ def test_has_non_zero_loss():
       horizon=database_horizon,
       databasePolicies=[generating_policy],
       seed=0,
-      labels=["x","xdot"])
+      labels=["x","xdot"],
+      optimizeMetric=False,
+      initializeMetric=True)
 
     # get the metric
     distance = MahalanobisDistance(
@@ -139,7 +144,11 @@ def test_has_non_zero_loss():
     for row in matrix_metric_1:
         for val in row:
             flat_metric.append(val)
-    loss = MahalanobisDistance.loss(flat_metric, synthesis_domain, distance.benchmarks)
+    loss = MahalanobisDistance.loss(
+        flat_metric,
+        synthesis_domain,
+        distance.benchmarks,
+        benchmark_rollout_count=2)
     assert loss > 0, "Loss is zero or negative"
 
     gridworld = domain_gridworld(noise=.1)
@@ -151,7 +160,9 @@ def test_has_non_zero_loss():
       rolloutCount=database_rollout_count,
       horizon=database_horizon,
       databasePolicies=[generating_policy],
-      seed = 0)
+      seed = 0,
+      optimizeMetric=False,
+      initializeMetric=True)
 
     # get the metric
     distance = MahalanobisDistance(
@@ -166,7 +177,11 @@ def test_has_non_zero_loss():
     for row in matrix_metric_1:
         for val in row:
             flat_metric.append(val)
-    loss = MahalanobisDistance.loss(flat_metric, synthesis_domain, distance.benchmarks)
+    loss = MahalanobisDistance.loss(
+        flat_metric,
+        synthesis_domain,
+        distance.benchmarks,
+        benchmark_rollout_count=2)
     assert loss > 0, "Loss is zero or negative"
 
 def test_has_zero_loss():
@@ -255,7 +270,66 @@ def test_has_zero_loss():
       benchmark_rollout_count=target_rollout_count)
     assert loss == 0, "Loss is not zero: {}".format(loss)
 
+def test_updated_distance_metric_does_not_improves_performance():
+    """
+    The optimizer should fail to improve performance on the grid world domain because
+    the normalized Euclidean distance was pretty much designed for its domain.
+    :return:
+    """
+    target_rollout_count = 30
+    target_horizon = 8
+    database_rollout_count = 254
+    database_horizon = 8
 
+    def expectation(target_domain, matrix_variable_count, labels):
+
+        rs = np.random.RandomState(0)
+        def generating_policy(state, possibleActions):
+            return rs.choice(possibleActions)
+
+        rs2 = np.random.RandomState(1)
+        def target_policy(state, possibleActions):
+            # 3xUp, then down/up alternating until horizon in the gridworld domain
+            #return possibleActions[0]
+            return rs2.choice(possibleActions)
+
+        synthesis_domain = domain_stitching(
+            target_domain,
+            rolloutCount=database_rollout_count,
+            horizon=database_horizon,
+            databasePolicies=[generating_policy],
+            labels=labels,
+            seed=0,
+            optimizeMetric=False)
+
+        mahalanobis_distance = synthesis_domain.mahalanobis_metric
+
+        matrix_metric_not_optimized = mahalanobis_distance.get_matrix_as_np_array()
+
+        starting_loss = MahalanobisDistance.loss(
+            MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric_not_optimized)),
+            synthesis_domain,
+            mahalanobis_distance.benchmarks,
+            benchmark_rollout_count=50)
+        synthesis_domain.optimize_metric()
+        matrix_metric_optimized = mahalanobis_distance.get_matrix_as_np_array()
+        optimized_loss = MahalanobisDistance.loss(
+            MahalanobisDistance.ceiling_logarithm(MahalanobisDistance.flatten(matrix_metric_optimized)),
+            synthesis_domain,
+            mahalanobis_distance.benchmarks,
+            benchmark_rollout_count=50)
+
+        print "metric: " + str(MahalanobisDistance.flatten(matrix_metric_not_optimized))
+        print "starting_loss: " + str(starting_loss)
+        print "metric: " + str(MahalanobisDistance.flatten(matrix_metric_optimized))
+        print "optimized_loss: " + str(optimized_loss)
+
+        assert optimized_loss >= starting_loss, "Optimized loss ({}) is not better than starting loss ({})".format(optimized_loss, starting_loss)
+
+    print "\n\n\nGRID WORLD\n\n\n"
+    gridworld = domain_gridworld(noise=.1)
+    gridworld.random_state = np.random.RandomState(0)
+    expectation(target_domain=gridworld, matrix_variable_count=6, labels=["x", "y"])
 
 def test_updated_distance_metric_improves_performance():
     """
@@ -316,10 +390,6 @@ def test_updated_distance_metric_improves_performance():
     mountaincar.random_state = np.random.RandomState(0) 
     expectation(target_domain=mountaincar, matrix_variable_count=5, labels=["x", "xdot"])
 
-    print "\n\n\nGRID WORLD\n\n\n"
-    gridworld = domain_gridworld(noise=.1)
-    gridworld.random_state = np.random.RandomState(0)
-    expectation(target_domain=gridworld, matrix_variable_count=6, labels=["x", "y"])
 
 def test_updates_distance_metric_to_not_be_identity():
     """
@@ -348,7 +418,9 @@ def test_updates_distance_metric_to_not_be_identity():
       horizon=database_horizon,
       databasePolicies=[synthesized_policy],
       seed=0,
-      labels=["x","xdot"])
+      labels=["x","xdot"],
+      optimizeMetric=False
+    )
 
     distance = MahalanobisDistance(
         5,
@@ -357,7 +429,7 @@ def test_updates_distance_metric_to_not_be_identity():
         normalize_starting_metric=True,
         cached_metric=None)
 
-    distance.optimize()
+    distance.optimize(benchmark_rollout_count=2)
 
     matrix = distance.get_matrix_as_np_array()
 

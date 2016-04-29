@@ -29,6 +29,8 @@ def visualFidelityError(
     """
     :return:
     """
+    benchmarkSample = []
+    outCSVFile.write("sampleCount, mean, variance, stitchingVariables\n")
     for idx,policyValue in enumerate(policyValues):
         var_count = len(stitchingVariables)
         mahaMetric = rlpy.Domains.StitchingPackage.MahalanobisDistance.MahalanobisDistance(var_count,
@@ -36,7 +38,6 @@ def visualFidelityError(
                                                                                            target_policies=[],
                                                                                            normalize_starting_metric=False,
                                                                                            cached_metric=None)
-        benchmarkSample = []
 
         inverseVariances = []
         for stitchingVariable in stitchingVariables:
@@ -66,8 +67,7 @@ def visualFidelityError(
     variance = rlpy.Domains.StitchingPackage.benchmark.Benchmark.variance(benchmarkSample)
     mean = sum(benchmarkSample)/float(len(benchmarkSample))
 
-    for variable in stitchingVariables:
-        outCSVFile.write(variable + "|")
+    outCSVFile.write(sampleCount)
     outCSVFile.write(",")
     outCSVFile.write("{},{},{}\n".format(mean, variance, len(stitchingVariables)))
     return mean

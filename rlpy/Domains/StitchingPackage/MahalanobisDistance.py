@@ -226,7 +226,7 @@ class MahalanobisDistance(object):
 
         return total_benchmark
 
-    def optimize(self):
+    def optimize(self, benchmark_rollout_count=50):
         """
         Optimize and save the distance metric in non-exponentiated form.
         """
@@ -241,7 +241,10 @@ class MahalanobisDistance(object):
         def print_and_save(vec):
             loss = MahalanobisDistance.loss(
                 vec,
-                self.stitching, self.benchmarks)
+                self.stitching,
+                self.benchmarks,
+                benchmark_rollout_count=benchmark_rollout_count
+            )
             print "==Optimization iteration complete=="
             print vec
             print "LOSS:"
@@ -256,7 +259,7 @@ class MahalanobisDistance(object):
         res = minimize(
             MahalanobisDistance.loss,
             inverse_exponentiated,
-            args=(self.stitching, self.benchmarks),
+            args=(self.stitching, self.benchmarks, benchmark_rollout_count),
             method="Powell",
             tol=.000000001,
             options={"disp": True},

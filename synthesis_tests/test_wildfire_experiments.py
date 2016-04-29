@@ -209,7 +209,73 @@ def test_wildfire_sample_size_bias():
             horizon=2)
 
 def test_wildfire_structural_bias():
-    assert False
+    databaseCSVPath = "synthesis_tests/wildfire_data/wildfire_hand_constructed.csv"
+    wildfireData = WildfireData(databaseCSVPath)
+    stitchingVariables = [
+        "Fuel Model start",
+        "Canopy Closure start",
+        "Canopy Height start",
+        "Canopy Base Height start",
+        "Canopy Bulk Density start",
+        "Covertype start",
+        "Stand Density Index start",
+        "Succession Class start",
+        "Maximum Time in State start",
+        "Stand Volume Age start"
+    ]
+
+    # Update all the transition tuples in the database
+    wildfireData.populateDatabase(
+        stitchingVariables=stitchingVariables,
+        visualizationVariables=wildfireData.VISUALIZATION_VARIABLES)
+
+    inputVariancesPath = "synthesis_tests/wildfire_data/wildfire_variances_hand_constructed.pkl"
+    inputVariances = file(inputVariancesPath, "rb")
+    varianceDictionary = pickle.load(inputVariances)
+    outputCSVFilePath = "synthesis_tests/wildfire_data/structural_bias.csv"
+    outCSVFile = file(outputCSVFilePath, "wb")
+
+    stitchingDomain = rlpy.Domains.Stitching(wildfireData,
+                                             rolloutCount = 0,
+                                             horizon = 100,
+                                             databasePolicies = [],
+                                             targetPolicies = [],
+                                             targetPoliciesRolloutCount = 0,
+                                             stitchingToleranceSingle = .1,
+                                             stitchingToleranceCumulative = .1,
+                                             seed = None,
+                                             database = None,
+                                             labels = None,
+                                             metricFile = None,
+                                             optimizeMetric = False,
+                                             writeNormalizedMetric = None,
+                                             initializeMetric = False)
+
+    policies = []
+    policyValues = []
+    # todo: when doing the actual experiments, these values should be associated with the sampled policies:
+    for targetPolicyERC in experiments.wildfire_policy_functions.databasePolicyParameters["ercThreshold"]:
+        for targetPolicyTime in experiments.wildfire_policy_functions.databasePolicyParameters["timeUntilEndOfFireSeasonThreshold"]:
+            policyValues.append([targetPolicyERC, targetPolicyTime])
+            policies.append(experiments.wildfire_policy_functions.wildfirePolicySeverityFactory(targetPolicyERC, targetPolicyTime))
+
+    benchmarks = []
+    for policyValue in policyValues:
+        base_rollouts = wildfireData.getTargetRollouts(policyValue[0], policyValue[1])
+        current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
+        benchmarks.append(current)
+
+    experiments.structural_bias.visualFidelityError(
+        wildfireData,
+        varianceDictionary,
+        stitchingDomain,
+        outCSVFile,
+        benchmarks,
+        stitchingVariables,
+        policyValues,
+        policies,
+        sampleCount=2,
+        horizon=2)
 
 def test_wildfire_other_policies():
     assert False

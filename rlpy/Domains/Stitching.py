@@ -250,7 +250,8 @@ class Stitching(Domain):
         :return: ``[TransitionTuple,...]`` The selected transitions from the database.
         """
         q = list(preStateDistanceMetricVariables)
-
+        q = np.array(preStateDistanceMetricVariables)
+        q = q.reshape(1,-1)
         k = min(k, len(self.database))
         (indices_array, distances_array) = self.tree.query_radius(q,
                                                            r=0.0,
@@ -422,7 +423,8 @@ class Stitching(Domain):
         :return:
         """
         pre = self.preStateDistanceMetricVariables
-        q = list(pre)
+        q = np.array(pre)
+        q = q.reshape(1,-1)
         k = min(k, len(self.database))
         (distances_array, indices_array) = self.tree.query(q,
                                                            k=k,

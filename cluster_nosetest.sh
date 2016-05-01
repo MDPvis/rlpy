@@ -25,7 +25,7 @@ fi
 # Construct job scripts
 
 if [[ $# -eq 1 ]]; then
-    files=($uuid)
+    files=("z"$uuid)
 else
     echo "Usage: submit.sh <test-selector>"
     exit 0

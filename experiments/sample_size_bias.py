@@ -67,7 +67,7 @@ def visualFidelityError(
     variance = rlpy.Domains.StitchingPackage.benchmark.Benchmark.variance(benchmarkSample)
     mean = sum(benchmarkSample)/float(len(benchmarkSample))
 
-    outCSVFile.write(sampleCount)
+    outCSVFile.write(str(sampleCount))
     outCSVFile.write(",")
     outCSVFile.write("{},{},{}\n".format(mean, variance, len(stitchingVariables)))
     return mean

@@ -206,6 +206,7 @@ def test_benchmark_degenerates_if_benchmark_count_is_too_large_relative_to_datab
     synthesis_domain = domain_stitching(
       target_domain,
       rolloutCount=database_rollout_count,
+      targetPolicies=[target_policy],
       horizon=database_horizon,
       databasePolicies=[generating_policy],
       seed = 0,

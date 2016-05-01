@@ -1,0 +1,2 @@
+compute-2-2.hpc.engr.oregonstate.edu
+compute-2-4.hpc.engr.oregonstate.edu

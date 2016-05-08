@@ -42,10 +42,16 @@ class WildfireData(Domain):
         "Succession Class start",
         "Maximum Time in State start",
         "Stand Volume Age start",
-        "column 1",
-        "column 2",
-        "column 3",
-        "column 4"
+        "Precipitation",
+        "MaxTemperature",
+        "MinHumidity",
+        "WindSpeed",
+        "ignitionCovertype",
+        "ignitionSlope",
+        "startIndex",
+        "endIndex",
+        "ERC",
+        "SC"
     ]
 
     # The variables that correspond to the variables in ALL_STITCHING_VARIABLES
@@ -59,11 +65,7 @@ class WildfireData(Domain):
         "Stand Density Index end",
         "Succession Class end",
         "Maximum Time in State end",
-        "Stand Volume Age end",
-        "column 1", # This is a hack that results in saying "column 1" starts and ends with the same value
-        "column 2",
-        "column 3",
-        "column 4"
+        "Stand Volume Age end"
     ]
 
     # The variables to use for stitching if we care most about performance (landscape variables)
@@ -82,17 +84,21 @@ class WildfireData(Domain):
 
     # All the variables we visualize
     VISUALIZATION_VARIABLES = [
-        "column 1",
-        "column 2",
-        "column 3",
-        "column 4",
-        "reward"
+        "action",
+        "CrownFirePixels",
+        "SurfaceFirePixels",
+        "fireSuppressionCost",
+        "timberLoss_IJWF",
+        "boardFeetHarvestTotal",
+        "boardFeetHarvestPonderosa",
+        "boardFeetHarvestLodgepole",
+        "boardFeetHarvestMixedConifer"
     ]
 
     # All the variables we use in the policy function
     POLICY_VARIABLES = [
         "ERC",
-        "Time Until End of Fire Season"
+        "startIndex"
     ]
 
     # A list of tuples that are initial states. These will be drawn with uniform probability
@@ -252,26 +258,60 @@ class WildfireData(Domain):
             out.write(newVar + " end,")
 
         with open(infileName, 'rb') as csvfile:
-            transitions = csv.reader(csvfile, delimiter=',')
+            transitions = csv.DictReader(csvfile)
 
-            # Write the header from the file after the additional headers from the lcp summaries
-            row = transitions.next()
-            for header in row[2:]:
+            for header in transitions.keys():
                 out.write(header.strip() + ",")
             out.write("\n")
-            for row in transitions:
-                landscapeStartFileName = row[0]
-                landscapeEndFilNamee = row[1]
+            for transitionDictionary in transitions:
+
+                initialEvent = int(transitionDictionary["initialEvent"])
+                year = int(transitionDictionary["year"])
+                action = int(transitionDictionary["action"])
+                ercPolicyThreshold = int(transitionDictionary["ercPolicyThreshold"])
+                daysTilEndPolicyThreshold = int(transitionDictionary["daysTilEndPolicyThreshold"])
+                offPolicy = "offPolicy" in transitionDictionary["lcpFileName"]
+
+                if offPolicy:
+                    policyLabel = "offPolicy"
+                else:
+                    policyLabel = "onPolicy"
+
+                landscapeEndFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp".format(
+                    initialEvent,
+                    year,
+                    action,
+                    ercPolicyThreshold,
+                    daysTilEndPolicyThreshold,
+                    policyLabel
+                )
+
+                if year == 0:
+                    landscapeStartFileName = "/nfs/stak/students/m/mcgregse/Projects/rlpy/synthesis_tests/compressed.lcpz.bz2"
+                else:
+                    landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp".format(
+                        initialEvent,
+                        year-1,
+                        action,
+                        ercPolicyThreshold,
+                        daysTilEndPolicyThreshold,
+                        "onPolicy"
+                    )
+
+                # Write the start variables
                 summary = WildfireData.lcpStateSummary(landscapeStartFileName,
                                                        DISTANCE_METRIC_VARIABLES=DISTANCE_METRIC_VARIABLES)
                 for elem in summary:
                     out.write(str(elem) + ",")
-                summary = WildfireData.lcpStateSummary(landscapeEndFilNamee,
+
+                # Write the end variables
+                summary = WildfireData.lcpStateSummary(landscapeEndFileName,
                                                        DISTANCE_METRIC_VARIABLES=DISTANCE_METRIC_VARIABLES)
                 for elem in summary:
                     out.write(str(elem) + ",")
 
-                for elem in row[2:]:
+                # Write out the rest of the result file
+                for elem in row:
                     out.write(elem + ",")
                 out.write("\n")
 

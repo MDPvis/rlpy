@@ -2,6 +2,7 @@ from .Domain import Domain
 from subprocess import call
 from struct import unpack
 import numpy as np
+import os.path
 import csv
 from rlpy.Domains.StitchingPackage.TransitionTuple import TransitionTuple
 
@@ -31,8 +32,8 @@ class WildfireData(Domain):
     """
 
     # All the variables that could be used in stitching
-    ALL_STITCHING_VARIABLES = [
-        "Fuel Model start",
+    ALL_PRE_TRANSITION_STITCHING_VARIABLES = [
+        "Fuel Model start", # \/ pulled from the landscape summary of the prior time step's onPolicy landscape
         "Canopy Closure start",
         "Canopy Height start",
         "Canopy Base Height start",
@@ -42,6 +43,43 @@ class WildfireData(Domain):
         "Succession Class start",
         "Maximum Time in State start",
         "Stand Volume Age start",
+        "Precipitation start", # \/ pulled from the current row's state
+        "MaxTemperature start",
+        "MinHumidity start",
+        "WindSpeed start",
+        "ignitionCovertype start",
+        "ignitionSlope start",
+        "startIndex start",
+        "endIndex start",
+        "ERC start",
+        "SC start"
+    ]
+
+    # The variables that correspond to the variables in ALL_PRE_TRANSITION_STITCHING_VARIABLES
+    ALL_POST_TRANSITION_STITCHING_VARIABLES = [
+        "Fuel Model end", # \/ pulled from the landscape summary of the current row
+        "Canopy Closure end",
+        "Canopy Height end",
+        "Canopy Base Height end",
+        "Canopy Bulk Density end",
+        "Covertype end",
+        "Stand Density Index end",
+        "Succession Class end",
+        "Maximum Time in State end",
+        "Stand Volume Age end",
+        "Precipitation end", # \/ pulled from the subsequent state
+        "MaxTemperature end",
+        "MinHumidity end",
+        "WindSpeed end",
+        "ignitionCovertype end",
+        "ignitionSlope end",
+        "startIndex end",
+        "endIndex end",
+        "ERC end",
+        "SC end"
+    ]
+
+    NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES = [
         "Precipitation",
         "MaxTemperature",
         "MinHumidity",
@@ -54,22 +92,8 @@ class WildfireData(Domain):
         "SC"
     ]
 
-    # The variables that correspond to the variables in ALL_STITCHING_VARIABLES
-    POST_TRANSITION_VARIABLES = [
-        "Fuel Model end",
-        "Canopy Closure end",
-        "Canopy Height end",
-        "Canopy Base Height end",
-        "Canopy Bulk Density end",
-        "Covertype end",
-        "Stand Density Index end",
-        "Succession Class end",
-        "Maximum Time in State end",
-        "Stand Volume Age end"
-    ]
-
     # The variables to use for stitching if we care most about performance (landscape variables)
-    BEST_STITCHING_VARIABLES = [
+    BEST_PRE_TRANSITION_STITCHING_VARIABLES = [
         "Fuel Model start",
         "Canopy Closure start",
         "Canopy Height start",
@@ -82,7 +106,21 @@ class WildfireData(Domain):
         "Stand Volume Age start"
     ]
 
-    # All the variables we visualize
+    # The variables that result from stitching if we care most about performance (landscape variables)
+    BEST_POST_TRANSITION_STITCHING_VARIABLES = [
+        "Fuel Model end",
+        "Canopy Closure end",
+        "Canopy Height end",
+        "Canopy Base Height end",
+        "Canopy Bulk Density end",
+        "Covertype end",
+        "Stand Density Index end",
+        "Succession Class end",
+        "Maximum Time in State end",
+        "Stand Volume Age end"
+    ]
+
+    # All the variables we visualize and use for benchmarking
     VISUALIZATION_VARIABLES = [
         "action",
         "CrownFirePixels",
@@ -125,33 +163,37 @@ class WildfireData(Domain):
     database = []
 
     def __init__(self,
-                 databaseCSV,
-                 stitchingVariables=ALL_STITCHING_VARIABLES,
-                 visualizationVariables=VISUALIZATION_VARIABLES):
+                 databaseCSV):
         """
         Load data from the database's CSV file.
         """
         np.random.seed(0)
         self.databaseCSV = databaseCSV
-        self.populateDatabase(
-            stitchingVariables=stitchingVariables,
-            visualizationVariables=visualizationVariables)
+        self.populateDatabase()
 
         #super(WildfireData, self).__init__()
 
-    def populateDatabase(
-            self,
-            stitchingVariables=ALL_STITCHING_VARIABLES,
-            visualizationVariables=VISUALIZATION_VARIABLES):
+    def populateDatabase(self):
         """
         Replace the current database with a new database defined on the parameters.
 
         :return: self.database
         """
+
+        stitchingVariables = WildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES
+        visualizationVariables = WildfireData.VISUALIZATION_VARIABLES
+        # todo, this is not integrated correctly
+
+        def parseRow(r):
+            try:
+                ret = float(r)
+                return ret
+            except Exception:
+                return r
+
         self.database = []
         self.DimNames = []
         self.init_state_tuples = []
-        self.VISUALIZATION_VARIABLES = visualizationVariables
         with open(self.databaseCSV, 'rb') as csvfile:
             transitions = csv.reader(csvfile, delimiter=',')
             row = transitions.next()
@@ -162,7 +204,7 @@ class WildfireData(Domain):
                     header.append(headerValue.strip())
             for row in transitions:
                 del row[-1]
-                parsedRow = map(float, row)
+                parsedRow = map(parseRow, row)
                 state = []
                 ns = []
                 visualizationState = {}
@@ -195,22 +237,24 @@ class WildfireData(Domain):
                 self.database.append(t)
 
     @staticmethod
-    def lcpStateSummary(landscapeFileName, DISTANCE_METRIC_VARIABLES=None):
+    def lcpStateSummary(landscapeFileName):
         """
         Give the summary variables used for stitching based on the landscapes.
         Landscapes are 940X1127X10=10593800 shorts (11653180)
         :param landscapeFileName: The name of the landscape we want to generate a state summary for.
-        :param DISTANCE_METRIC_VARIABLES: The variables we are going to generate summaries for. These will be used
-          in the distance metric.
         :return: array of values for distance metric variables
         """
-        assert DISTANCE_METRIC_VARIABLES is not None
-        call(["bzip2 " + landscapeFileName + " -dk"], shell=True)
-        decompressedFilename = landscapeFileName.split(".bz2")[0]
+        distanceMetricVariableCount = 10
+
+        # tmpFileName
+        decompressedFilename = "tmp.lcp." + landscapeFileName.split("/")[-1]#landscapeFileName.split(".bz2")[0]
+        
+        call(["bzip2 " + landscapeFileName + " -dkc > " + decompressedFilename], shell=True)
+        
         lcpFile = file(decompressedFilename, "rb")
         print "processing %s" % lcpFile
         layers = []
-        for idx, layer in enumerate(DISTANCE_METRIC_VARIABLES):
+        for idx in range(0,distanceMetricVariableCount):
             layers.append([])
         layers.append([]) # hack because there is an extra layer
 
@@ -236,12 +280,13 @@ class WildfireData(Domain):
                 average = float(average * idx + pixel)/(idx + 1.)
             summary.append(average)
             #summary.append([high, low, average])
-        call(["rm " + decompressedFilename], shell=True) # cleanup decompressed file
+        print "removing file {}".format(decompressedFilename)
+        call(["rm /nfs/stak/students/m/mcgregse/Projects/rlpy/" + decompressedFilename], shell=True) # cleanup decompressed file
         del summary[-1] # remove the last element because it is not needed
         return summary
 
     @staticmethod
-    def postProcessData(infileName, outfileName, DISTANCE_METRIC_VARIABLES=None):
+    def postProcessData(infileName, outfileName):
         """
         Create the updated CSV database based on the current landscape summary functions.
         :param infileName: The name of the CSV file that we are going to post process with the landscape files to
@@ -250,69 +295,107 @@ class WildfireData(Domain):
         :param DISTANCE_METRIC_VARIABLES: The names of the variables that will be produced for the landscapes
         :return:
         """
-        assert DISTANCE_METRIC_VARIABLES is not None
+        print "writing header to file"
         out = file(outfileName, "w")
-        for newVar in DISTANCE_METRIC_VARIABLES:
-            out.write(newVar + " start,")
-        for newVar in DISTANCE_METRIC_VARIABLES:
-            out.write(newVar + " end,")
+        for newVar in WildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES:
+            out.write(newVar + ",")
+        for newVar in WildfireData.ALL_POST_TRANSITION_STITCHING_VARIABLES:
+            out.write(newVar + ",")
 
         with open(infileName, 'rb') as csvfile:
-            transitions = csv.DictReader(csvfile)
+            transitionsReader = csv.DictReader(csvfile)
+            fieldnames = transitionsReader.fieldnames
+            print fieldnames
 
-            for header in transitions.keys():
+            # We will be writing the complete row for every raw transition
+            for header in fieldnames:
                 out.write(header.strip() + ",")
             out.write("\n")
-            for transitionDictionary in transitions:
 
-                initialEvent = int(transitionDictionary["initialEvent"])
+            transitions = list(transitionsReader)
+            for idx, transitionDictionary in enumerate(transitions):
+
+                initialFire = int(transitionDictionary["initialFire"])
                 year = int(transitionDictionary["year"])
                 action = int(transitionDictionary["action"])
-                ercPolicyThreshold = int(transitionDictionary["ercPolicyThreshold"])
-                daysTilEndPolicyThreshold = int(transitionDictionary["daysTilEndPolicyThreshold"])
                 offPolicy = "offPolicy" in transitionDictionary["lcpFileName"]
+
+                # We can't render year 100 because there is no fire experienced at that year
+                if year == 99:
+                    continue
+                
+                parts = transitionDictionary["lcpFileName"].split("_")
+                ercPolicyThreshold = int(parts[4])
+                daysTilEndPolicyThreshold = int(parts[5])
 
                 if offPolicy:
                     policyLabel = "offPolicy"
                 else:
                     policyLabel = "onPolicy"
 
-                landscapeEndFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp".format(
-                    initialEvent,
+                landscapeEndFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                    initialFire,
                     year,
                     action,
                     ercPolicyThreshold,
                     daysTilEndPolicyThreshold,
                     policyLabel
                 )
+                assert landscapeEndFileName.split("/")[-1] == transitionDictionary["lcpFileName"].split("/")[-1] + ".bz2", "{} != {}".format(landscapeEndFileName, transitionDictionary["lcpFileName"])
 
                 if year == 0:
                     landscapeStartFileName = "/nfs/stak/students/m/mcgregse/Projects/rlpy/synthesis_tests/compressed.lcpz.bz2"
                 else:
-                    landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp".format(
-                        initialEvent,
+                    landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                        initialFire,
                         year-1,
-                        action,
+                        0,
                         ercPolicyThreshold,
                         daysTilEndPolicyThreshold,
                         "onPolicy"
                     )
+                    if not os.path.isfile(landscapeStartFileName):
+                        landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                            initialFire,
+                            year-1,
+                            1,
+                            ercPolicyThreshold,
+                            daysTilEndPolicyThreshold,
+                            "onPolicy"
+                        )
+
+                print "processing {} and {}".format(landscapeStartFileName, landscapeEndFileName)
 
                 # Write the start variables
-                summary = WildfireData.lcpStateSummary(landscapeStartFileName,
-                                                       DISTANCE_METRIC_VARIABLES=DISTANCE_METRIC_VARIABLES)
+                summary = WildfireData.lcpStateSummary(landscapeStartFileName)
                 for elem in summary:
                     out.write(str(elem) + ",")
 
-                # Write the end variables
-                summary = WildfireData.lcpStateSummary(landscapeEndFileName,
-                                                       DISTANCE_METRIC_VARIABLES=DISTANCE_METRIC_VARIABLES)
+                # The rest of the potential start variables
+                for name in WildfireData.NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES:
+                    out.write(str(transitionDictionary[name]) + ",")
+
+                # Write the end summary variables
+                summary = WildfireData.lcpStateSummary(landscapeEndFileName)
                 for elem in summary:
                     out.write(str(elem) + ",")
+
+                # Write the rest of the potential end variables
+                for name in WildfireData.NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES:
+                    subsequentIndex = idx + 1
+                    if int(transitions[subsequentIndex]["year"]) != year + 1:
+                        subsequentIndex += 1
+                    assert int(transitions[subsequentIndex]["year"]) == year + 1, "{} does not equal {}".format(transitions[subsequentIndex]["year"], year + 1)
+                    out.write(str(transitions[subsequentIndex][name]) + ",")
 
                 # Write out the rest of the result file
-                for elem in row:
-                    out.write(elem + ",")
+                for k in fieldnames:
+                    cur = transitionDictionary[k]
+                    if cur is None:
+                        cur = ""
+                    else:
+                        cur = str(cur)
+                    out.write(cur + ",")
                 out.write("\n")
 
     def getInitState(self):

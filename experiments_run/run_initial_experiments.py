@@ -12,11 +12,35 @@ import rlpy.Domains.StitchingPackage.benchmark
 from rlpy.Domains.WildfireData import WildfireData
 import pickle
 
-# These variables will be used to benchmark each of the experiments
-VISUALIZATION_VARIABLES = WildfireData.VISUALIZATION_VARIABLES
-
-# These variables will be used to stitch between states in each of the experiments
-STITCHING_VARIABLES = WildfireData.BEST_STITCHING_VARIABLES
+def test_post_process_landscapes():
+    """
+    Generate pickled version of all the state summaries for each of the landscapes in the landscapes directory
+    """
+    landscapeDirectory = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/"
+    resultsDirectory = "/nfs/stak/students/m/mcgregse/Projects/rlpy/experiments/data/landscapes/"
+    files = os.listdir(landscapeDirectory)
+    fileNum = 0
+    while fileNum < len(files):
+        f = files[fileNum]
+        print "processing {}".format(f)
+        if os.path.isfile(resultsDirectory+f):
+            print "skipping forward 100 since this landscape is processed"
+            fileNum += 100
+            continue
+        try:
+            s = WildfireData.lcpStateSummary(landscapeDirectory+f)
+            if os.path.isfile(resultsDirectory+f):
+                print "skipping forward 100 since this landscape is processed"
+                fileNum += 100
+                continue
+            out = open(resultsDirectory+f, "wb")
+            pickle.dump(s, out)
+            out.close()
+        except Exception as inst:
+            print type(inst)
+            print inst.args
+            print "failed to summarize: {}".format(f)
+        fileNum += 1
 
 def test_post_process_data():
     """
@@ -24,9 +48,8 @@ def test_post_process_data():
     :return:
     """
     WildfireData.postProcessData(
-        "/nfs/stak/students/m/mcgregse/Projects/rlpy/raw.csv",
-        "/nfs/stak/students/m/mcgregse/Projects/rlpy/processed.csv",
-        DISTANCE_METRIC_VARIABLES=STITCHING_VARIABLES
+        "experiments/data/raw.csv",
+        "experiments/data/processed.csv"
     )
 
 def test_wildfire_produce_metrics_variances():
@@ -35,13 +58,12 @@ def test_wildfire_produce_metrics_variances():
     the creation of distance metrics using any of the database variables.
     :return:
     """
-    databaseCSVPath = "experiments/data/processed_database.csv"
+    databaseCSVPath = "experiments/data/processed.csv"
     wildfireData = WildfireData(databaseCSVPath)
-    outputVariancesPath = "experiments/data/processed_database_variances.pkl"
+    outputVariancesPath = "experiments/data/processed_variances.pkl"
     if os.path.isfile(outputVariancesPath):
         assert False, "The processed_database_variances.pkl file already exists, remove or rename it."
     experiments.produce_metrics.computeVariances(wildfireData, outputVariancesPath)
-    f = open(outputVariancesPath, "r")
 
 
 def test_wildfire_sample_size_bias():

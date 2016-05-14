@@ -52,7 +52,7 @@ do
     # echo '#$ -N '"$f">> $g
     echo '#$ -hard -l m_mem_free=8G'>> $g
     echo '#$ -l hostname='"$hostnames">> $g
-    echo $NOSEPATH "$1">> $g
+    echo $NOSEPATH "$1 --nologcapture">> $g
     # echo 'if ! $?; then sleep 60; exit 100; fi'>> $g
     qsub $g
     sleep 1

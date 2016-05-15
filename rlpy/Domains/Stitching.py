@@ -264,11 +264,11 @@ class Stitching(Domain):
                 selectedTransitionTupleIndex = indices_array[0][i]
                 break
         assert selectedTransitionTuple.last_accessed_iteration != self.rolloutSetCounter
-        initialEventID = selectedTransitionTuple.additionalState["initial event"]
+        initialEventID = selectedTransitionTuple.additionalState["initialFire"]
         action = selectedTransitionTuple.additionalState["action"]
-        timeStep = selectedTransitionTuple.additionalState["time step"]
-        ercPolicyParameter = selectedTransitionTuple.additionalState["ercPolicyParameter"]
-        timePolicyParameter = selectedTransitionTuple.additionalState["timePolicyParameter"]
+        timeStep = selectedTransitionTuple.additionalState["year"]
+        ercPolicyParameter = selectedTransitionTuple.additionalState["policyThresholdERC"]
+        timePolicyParameter = selectedTransitionTuple.additionalState["policyThresholdDays"]
         for distances in distances_array:
             for distance in distances:
                 assert distance == 0.0, "Distance was {}".format(distance)
@@ -280,10 +280,10 @@ class Stitching(Domain):
             if selectedTransitionTupleIndex == idx:
                 continue
             cur = self.database[idx]
-            if cur.additionalState["initial event"] == initialEventID and\
-                cur.additionalState["time step"] == timeStep and\
-                cur.additionalState["ercPolicyParameter"] == ercPolicyParameter and\
-                cur.additionalState["timePolicyParameter"] == timePolicyParameter:
+            if cur.additionalState["initialFire"] == initialEventID and\
+                cur.additionalState["year"] == timeStep and\
+                cur.additionalState["policyThresholdERC"] == ercPolicyParameter and\
+                cur.additionalState["policyThresholdDays"] == timePolicyParameter:
                 assert cur.additionalState["action"] != action
                 biasCorrectedTransitionSet.append(self.database[idx])
 
@@ -473,7 +473,7 @@ class Stitching(Domain):
             transition = self._stepWithoutBiasCorrection(policy)
 
         self.preStateDistanceMetricVariables = transition.postStateDistanceMetricVariables
-        r = transition.visualizationResultState["reward"]
+        r = 0.0#transition.visualizationResultState["reward"]
         self.currentPossibleActions = transition.possibleActions
         self.terminal = transition.isTerminal
         self.state = transition.visualizationResultState

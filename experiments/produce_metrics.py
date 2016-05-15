@@ -8,7 +8,7 @@ The landscape-only metrics are numbered |variables|*1000.
 __author__ = "Sean McGregor"
 from rlpy.Domains import WildfireData
 from rlpy.Domains import Stitching as Stitching
-from experiments.wildfire_policy_functions import wildfirePolicySeverityFactory, databasePolicyParameters
+from experiments.wildfire_policy_functions import wildfirePolicySeverityFactory
 import numpy as np
 import os
 import pickle
@@ -22,7 +22,7 @@ def computeVariances(wildfireData, outFilePath):
     {variable: variance}
     :return:
     """
-    variableNames = wildfireData.ALL_STITCHING_VARIABLES
+    variableNames = wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES
     varianceDictionary = {}
 
     for idx,variable in enumerate(variableNames):

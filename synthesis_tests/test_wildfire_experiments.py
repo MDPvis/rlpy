@@ -11,6 +11,7 @@ import experiments.other_policies
 import rlpy.Domains.StitchingPackage.benchmark
 from rlpy.Domains.WildfireData import WildfireData
 import pickle
+from experiments.configurations import testingConfigurationDict as configDict
 
 DISTANCE_METRIC_VARIABLES = [
     "Fuel Model",#99-187?, body 3 [187, 99, 130.01128867828544] http://www.landfire.gov/NationalProductDescriptions2.php
@@ -253,9 +254,8 @@ def test_wildfire_structural_bias():
 
     policies = []
     policyValues = []
-    # todo: when doing the actual experiments, these values should be associated with the sampled policies:
-    for targetPolicyERC in experiments.wildfire_policy_functions.databasePolicyParameters["ercThreshold"]:
-        for targetPolicyTime in experiments.wildfire_policy_functions.databasePolicyParameters["timeUntilEndOfFireSeasonThreshold"]:
+    for targetPolicyERC in configDict["policy parameters ERC"]:
+        for targetPolicyTime in configDict["policy parameters startIndex"]:
             policyValues.append([targetPolicyERC, targetPolicyTime])
             policies.append(experiments.wildfire_policy_functions.wildfirePolicySeverityFactory(targetPolicyERC, targetPolicyTime))
 

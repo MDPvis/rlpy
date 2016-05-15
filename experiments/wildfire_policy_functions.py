@@ -2,13 +2,6 @@
 A set of policy functions used to evaluate visual fidelity.
 """
 
-databasePolicyParameters = {
-    "ercThreshold": [50], # todo, change to real values
-    "timeUntilEndOfFireSeasonThreshold": [25], # todo, change to real values
-    "leftBoundary": [], # todo, change to real values
-    "topBoundary": [] # todo, change to real values
-}
-
 def wildfirePolicySeverityFactory(ercThreshold, timeUntilEndOfFireSeasonThreshold):
     """
     Gives a policy function defined on the two parameters.
@@ -25,8 +18,8 @@ def wildfirePolicySeverityFactory(ercThreshold, timeUntilEndOfFireSeasonThreshol
             ercThreshold=ercThreshold,
             timeUntilEndOfFireSeasonThreshold=timeUntilEndOfFireSeasonThreshold):
         assert transitionTuple is not None
-        erc = transitionTuple.additionalState["erc"]
-        timeUntilEndOfFireSeason = transitionTuple.additionalState["time until end"]
+        erc = transitionTuple.additionalState["ERC"]
+        timeUntilEndOfFireSeason = 181 - transitionTuple.additionalState["startIndex"]
         assert erc >= 0, "ERC was {}".format(erc)
         assert erc <= 100, "ERC was {}".format(erc)
         assert timeUntilEndOfFireSeason <= 180, "timeUntilEndOfFireSeason was {}".format(timeUntilEndOfFireSeason)

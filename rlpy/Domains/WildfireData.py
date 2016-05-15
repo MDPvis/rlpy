@@ -4,7 +4,9 @@ from struct import unpack
 import numpy as np
 import os.path
 import csv
+import pickle
 from rlpy.Domains.StitchingPackage.TransitionTuple import TransitionTuple
+from experiments.configurations import clusterConfigurationDict as configDict
 
 __copyright__ = "Copyright 2013, RLPy http://acl.mit.edu/RLPy"
 __credits__ = ["Alborz Geramifard", "Robert H. Klein", "Christoph Dann",
@@ -163,10 +165,27 @@ class WildfireData(Domain):
     database = []
 
     def __init__(self,
-                 databaseCSV):
+                 databaseCSV,
+                 ALL_PRE_TRANSITION_STITCHING_VARIABLES=ALL_PRE_TRANSITION_STITCHING_VARIABLES,
+                 ALL_POST_TRANSITION_STITCHING_VARIABLES=ALL_POST_TRANSITION_STITCHING_VARIABLES,
+                 NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES=NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES,
+                 BEST_PRE_TRANSITION_STITCHING_VARIABLES=BEST_PRE_TRANSITION_STITCHING_VARIABLES,
+                 BEST_POST_TRANSITION_STITCHING_VARIABLES=BEST_POST_TRANSITION_STITCHING_VARIABLES,
+                 VISUALIZATION_VARIABLES=VISUALIZATION_VARIABLES,
+                 POLICY_VARIABLES=POLICY_VARIABLES
+                 ):
         """
         Load data from the database's CSV file.
         """
+
+        self.ALL_PRE_TRANSITION_STITCHING_VARIABLES = ALL_PRE_TRANSITION_STITCHING_VARIABLES
+        self.ALL_POST_TRANSITION_STITCHING_VARIABLES = ALL_POST_TRANSITION_STITCHING_VARIABLES
+        self.NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES = NON_LANDSCAPE_TRANSITION_STITCHING_VARIABLE_NAMES
+        self.BEST_PRE_TRANSITION_STITCHING_VARIABLES = BEST_PRE_TRANSITION_STITCHING_VARIABLES
+        self.BEST_POST_TRANSITION_STITCHING_VARIABLES = BEST_POST_TRANSITION_STITCHING_VARIABLES
+        self.VISUALIZATION_VARIABLES = VISUALIZATION_VARIABLES
+        self.POLICY_VARIABLES = POLICY_VARIABLES
+
         np.random.seed(0)
         self.databaseCSV = databaseCSV
         self.populateDatabase()
@@ -180,16 +199,15 @@ class WildfireData(Domain):
         :return: self.database
         """
 
-        stitchingVariables = WildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES
-        visualizationVariables = WildfireData.VISUALIZATION_VARIABLES
-        # todo, this is not integrated correctly
-
         def parseRow(r):
             try:
                 ret = float(r)
                 return ret
             except Exception:
                 return r
+
+        stitchingVariables = self.BEST_PRE_TRANSITION_STITCHING_VARIABLES
+        visualizationVariables = self.VISUALIZATION_VARIABLES
 
         self.database = []
         self.DimNames = []
@@ -212,16 +230,18 @@ class WildfireData(Domain):
                 for idx, headerValue in enumerate(header):
                     if headerValue not in stitchingVariables and headerValue not in visualizationVariables:
                         additionalState[headerValue] = parsedRow[idx]
+                additionalState["action"] = parsedRow[header.index("action")]
+                additionalState["onPolicy"] = ("onPolicy" in additionalState["lcpFileName"])
                 for stitchingVariableIdx, variable in enumerate(stitchingVariables):
                     stateIndex = header.index(variable)
                     state.append(parsedRow[stateIndex])
-                    nsIndex = header.index(self.POST_TRANSITION_VARIABLES[stitchingVariableIdx])
+                    nsIndex = header.index(self.BEST_POST_TRANSITION_STITCHING_VARIABLES[stitchingVariableIdx])
                     ns.append(parsedRow[nsIndex])
                 for variable in visualizationVariables:
                     visualizationStateIndex = header.index(variable)
                     visualizationState[variable] = parsedRow[visualizationStateIndex]
                 terminal = False # no states are terminal
-                isInitial = (additionalState["time step"] == 1)
+                isInitial = (additionalState["year"] == 0)
                 assert len(state) == len(ns)
                 t = TransitionTuple(
                     state,
@@ -244,6 +264,19 @@ class WildfireData(Domain):
         :param landscapeFileName: The name of the landscape we want to generate a state summary for.
         :return: array of values for distance metric variables
         """
+
+        # always return the init state variables in the testing environment
+        if configDict["environment"] == "testing":
+            return WildfireData.INIT_STATE
+        elif os.path.isfile(configDict["landscape summary directory"] + landscapeFileName):
+            filename = configDict["landscape summary directory"] + landscapeFileName
+            f = open(filename, "rb")
+            summary = pickle.load(f)
+            f.close()
+            return summary
+
+        print "Warning!!! reprocessing Landscape: {}".format(landscapeFileName)
+
         distanceMetricVariableCount = 10
 
         # tmpFileName
@@ -344,7 +377,7 @@ class WildfireData(Domain):
                 assert landscapeEndFileName.split("/")[-1] == transitionDictionary["lcpFileName"].split("/")[-1] + ".bz2", "{} != {}".format(landscapeEndFileName, transitionDictionary["lcpFileName"])
 
                 if year == 0:
-                    landscapeStartFileName = "/nfs/stak/students/m/mcgregse/Projects/rlpy/synthesis_tests/compressed.lcpz.bz2"
+                    summary = WildfireData.INIT_STATE
                 else:
                     landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
                         initialFire,
@@ -363,11 +396,8 @@ class WildfireData(Domain):
                             daysTilEndPolicyThreshold,
                             "onPolicy"
                         )
-
-                print "processing {} and {}".format(landscapeStartFileName, landscapeEndFileName)
-
-                # Write the start variables
-                summary = WildfireData.lcpStateSummary(landscapeStartFileName)
+                    print "processing {} and {}".format(landscapeStartFileName, landscapeEndFileName)
+                    summary = WildfireData.lcpStateSummary(landscapeStartFileName)
                 for elem in summary:
                     out.write(str(elem) + ",")
 
@@ -415,17 +445,16 @@ class WildfireData(Domain):
         :param policy:
         :return:
         """
-
         targetRollouts = []
         def arbitraryAppend(transition, targetRollouts=targetRollouts):
-            timeStep = int(transition.additionalState["time step"])
-            while len(targetRollouts) < timeStep:
+            timeStep = int(transition.additionalState["year"])
+            while len(targetRollouts) <= timeStep:
                 targetRollouts.append([])
-            targetRollouts[timeStep-1].append(transition)
+            targetRollouts[timeStep].append(transition)
         for transition in self.database:
-            ercParameter = int(transition.additionalState["ercPolicyParameter"])
-            timeParameter = int(transition.additionalState["timePolicyParameter"])
-            if ercParameter == ercPolicyParameter and timeParameter == timePolicyParameter:
+            ercParameter = int(transition.additionalState["policyThresholdERC"])
+            timeParameter = int(transition.additionalState["policyThresholdDays"])
+            if ercParameter == ercPolicyParameter and timeParameter == timePolicyParameter and transition.additionalState["onPolicy"]:
                 arbitraryAppend(transition)
         trajectories = []
 
@@ -454,8 +483,8 @@ class WildfireData(Domain):
         """
         sansTarget = []
         for transition in self.database:
-            ercParameter = transition.additionalState["ercPolicyParameter"]
-            timeParameter = transition.additionalState["timePolicyParameter"]
+            ercParameter = transition.additionalState["policyThresholdERC"]
+            timeParameter = transition.additionalState["policyThresholdDays"]
             if ercParameter != ercPolicyParameter or timeParameter != timePolicyParameter:
                 sansTarget.append(transition)
         return sansTarget

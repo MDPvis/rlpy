@@ -122,7 +122,7 @@ def test_wildfire_policy_space():
     inputVariancesPath = configDict["variances output path"]
     inputVariances = file(inputVariancesPath, "rb")
     varianceDictionary = pickle.load(inputVariances)
-    outputCSVFilePath = configDict["experimental outputs directory"] + "test_wildfire_policy_space.csv"
+    outputCSVFilePath = configDict["experimental outputs directory"] + "test_wildfire_policy_space_BEST_METRIC.csv"
     outCSVFile = file(outputCSVFilePath, "wb")
 
     stitchingDomain = rlpy.Domains.Stitching(wildfireData,
@@ -161,6 +161,24 @@ def test_wildfire_policy_space():
         outCSVFile,
         benchmarks,
         wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES,
+        policyValues,
+        policies,
+        sampleCount=configDict["target trajectory count"],
+        horizon=configDict["horizon"])
+
+    outputCSVFilePath = configDict["experimental outputs directory"] + "test_wildfire_policy_space_BIG_METRIC.csv"
+    outCSVFile2 = file(outputCSVFilePath, "wb")
+
+    # Update all the transition tuples in the database
+    wildfireData.populateDatabase(stitchingVariables=wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES)
+
+    experiments.policy_space_error.visualFidelityError(
+        wildfireData,
+        varianceDictionary,
+        stitchingDomain,
+        outCSVFile2,
+        benchmarks,
+        wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES,
         policyValues,
         policies,
         sampleCount=configDict["target trajectory count"],

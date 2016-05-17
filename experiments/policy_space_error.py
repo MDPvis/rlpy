@@ -29,26 +29,26 @@ def visualFidelityError(
     """
     :return:
     """
+    var_count = len(stitchingVariables)
+    mahaMetric = rlpy.Domains.StitchingPackage.MahalanobisDistance.MahalanobisDistance(var_count,
+                                                                                       stitchingDomain,
+                                                                                       target_policies=[],
+                                                                                       normalize_starting_metric=False,
+                                                                                       cached_metric=None)
+    inverseVariances = []
+    for stitchingVariable in stitchingVariables:
+        cur = varianceDictionary[stitchingVariable]
+        assert cur >= 0
+        if cur == 0:
+            inverseVariances.append(0.0)
+        else:
+            inverseVariances.append(1.0/float(cur))
+    mahaMetric.updateInverseVariance(inverseVariances)
+
+    stitchingDomain.setMetric(mahaMetric)
+
     outCSVFile.write("error, ERC policy variable, time policy variable\n")
     for idx,policyValue in enumerate(policyValues):
-        var_count = len(stitchingVariables)
-        mahaMetric = rlpy.Domains.StitchingPackage.MahalanobisDistance.MahalanobisDistance(var_count,
-                                                                                           stitchingDomain,
-                                                                                           target_policies=[],
-                                                                                           normalize_starting_metric=False,
-                                                                                           cached_metric=None)
-        inverseVariances = []
-        for stitchingVariable in stitchingVariables:
-            cur = varianceDictionary[stitchingVariable]
-            assert cur >= 0
-            if cur == 0:
-                inverseVariances.append(0.0)
-            else:
-                inverseVariances.append(1.0/float(cur))
-        mahaMetric.updateInverseVariance(inverseVariances)
-
-        stitchingDomain.setMetric(mahaMetric)
-
         db = wildfireData.getDatabaseWithoutTargetSeverityPolicy(policyValue[0], policyValue[1])
         stitchingDomain.setDatabase(db)
         rollouts = stitchingDomain.getRollouts(
@@ -62,7 +62,5 @@ def visualFidelityError(
         for variable in stitchingDomain.domain.VISUALIZATION_VARIABLES:
             total += benchmarks[idx].benchmark_variable(rollouts, variable)
 
-        outCSVFile.write(str(sampleCount))
-        outCSVFile.write(",")
-        outCSVFile.write("{},{},{}\n".format(total, policyValue[0], policyValue[1]))
+        outCSVFile.write("{},{},{},{}\n".format(str(sampleCount), total, policyValue[0], policyValue[1]))
     return

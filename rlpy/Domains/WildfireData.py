@@ -52,7 +52,6 @@ class WildfireData(Domain):
         "ignitionCovertype start",
         "ignitionSlope start",
         "startIndex start",
-        "endIndex start",
         "ERC start",
         "SC start"
     ]
@@ -76,7 +75,6 @@ class WildfireData(Domain):
         "ignitionCovertype end",
         "ignitionSlope end",
         "startIndex end",
-        "endIndex end",
         "ERC end",
         "SC end"
     ]
@@ -89,7 +87,6 @@ class WildfireData(Domain):
         "ignitionCovertype",
         "ignitionSlope",
         "startIndex",
-        "endIndex",
         "ERC",
         "SC"
     ]
@@ -192,7 +189,7 @@ class WildfireData(Domain):
 
         #super(WildfireData, self).__init__()
 
-    def populateDatabase(self):
+    def populateDatabase(self, stitchingVariables=None, visualizationVariables=None):
         """
         Replace the current database with a new database defined on the parameters.
 
@@ -205,9 +202,10 @@ class WildfireData(Domain):
                 return ret
             except Exception:
                 return r
-
-        stitchingVariables = self.BEST_PRE_TRANSITION_STITCHING_VARIABLES
-        visualizationVariables = self.VISUALIZATION_VARIABLES
+        if stitchingVariables is None:
+            stitchingVariables = self.BEST_PRE_TRANSITION_STITCHING_VARIABLES
+        if visualizationVariables is None:
+            visualizationVariables = self.VISUALIZATION_VARIABLES
 
         self.database = []
         self.DimNames = []
@@ -220,6 +218,13 @@ class WildfireData(Domain):
                 if headerValue:
                     self.DimNames.append(headerValue.strip())
                     header.append(headerValue.strip())
+
+            # the indices of the post variables that correspond to the pre-variables
+            postIndices = []
+            for pre in stitchingVariables:
+                nm = pre.replace("start", "end")
+                postIndices.append(header.index(nm))
+
             for row in transitions:
                 del row[-1]
                 parsedRow = map(parseRow, row)
@@ -235,8 +240,7 @@ class WildfireData(Domain):
                 for stitchingVariableIdx, variable in enumerate(stitchingVariables):
                     stateIndex = header.index(variable)
                     state.append(parsedRow[stateIndex])
-                    nsIndex = header.index(self.BEST_POST_TRANSITION_STITCHING_VARIABLES[stitchingVariableIdx])
-                    ns.append(parsedRow[nsIndex])
+                    ns.append(parsedRow[postIndices[stitchingVariableIdx]])
                 for variable in visualizationVariables:
                     visualizationStateIndex = header.index(variable)
                     visualizationState[variable] = parsedRow[visualizationStateIndex]
@@ -264,23 +268,29 @@ class WildfireData(Domain):
         :param landscapeFileName: The name of the landscape we want to generate a state summary for.
         :return: array of values for distance metric variables
         """
+        cachedPath = configDict["landscape summary directory"] + landscapeFileName.split("/")[-1]
 
         # always return the init state variables in the testing environment
         if configDict["environment"] == "testing":
             return WildfireData.INIT_STATE
-        elif os.path.isfile(configDict["landscape summary directory"] + landscapeFileName):
-            filename = configDict["landscape summary directory"] + landscapeFileName
-            f = open(filename, "rb")
+        elif os.path.isfile(cachedPath):
+            f = open(cachedPath, "rb")
             summary = pickle.load(f)
             f.close()
             return summary
+        
+        #landscapeFileName.split("/")[-1] in ["lcp_9_71_1_60_144_onPolicy.lcp.bz2", "lcp_9_51_0_80_144_offPolicy.lcp.bz2","lcp_1_8_1_20_36_onPolicy.lcp.bz2", "lcp_2_81_0_20_0_offPolicy.lcp.bz2", "lcp_1_57_0_80_36_offPolicy.lcp.bz2", "lcp_30_69_0_80_0_offPolicy.lcp.bz2", "lcp_6_99_0_60_144_offPolicy.lcp.bz2"]:
+        elif True:
+            print "returning start state for one of the bad lcps"
+            return WildfireData.INIT_STATE
 
         print "Warning!!! reprocessing Landscape: {}".format(landscapeFileName)
+        print "checked cached path: {}".format(cachedPath)
 
         distanceMetricVariableCount = 10
 
         # tmpFileName
-        decompressedFilename = "tmp.lcp." + landscapeFileName.split("/")[-1]#landscapeFileName.split(".bz2")[0]
+        decompressedFilename = configDict["tmp directory"] + "tmp.lcp." + landscapeFileName.split("/")[-1]#landscapeFileName.split(".bz2")[0]
         
         call(["bzip2 " + landscapeFileName + " -dkc > " + decompressedFilename], shell=True)
         
@@ -314,7 +324,7 @@ class WildfireData(Domain):
             summary.append(average)
             #summary.append([high, low, average])
         print "removing file {}".format(decompressedFilename)
-        call(["rm /nfs/stak/students/m/mcgregse/Projects/rlpy/" + decompressedFilename], shell=True) # cleanup decompressed file
+        call(["rm " + decompressedFilename], shell=True) # cleanup decompressed file
         del summary[-1] # remove the last element because it is not needed
         return summary
 

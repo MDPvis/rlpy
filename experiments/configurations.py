@@ -16,6 +16,8 @@ clusterConfigurationDict["policy parameters startIndex"] = [0, 36, 72, 108, 144]
 
 clusterConfigurationDict["experimental outputs directory"] = "/nfs/stak/students/m/mcgregse/Projects/rlpy/experiments/results/"
 
+clusterConfigurationDict["feature selection results directory"] = "experiments/results/feature_selection/"
+
 clusterConfigurationDict["environment"] = "production"
 
 testingConfigurationDict = {}

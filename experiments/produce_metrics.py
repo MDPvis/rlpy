@@ -37,10 +37,96 @@ def computeVariances(wildfireData, outFilePath):
     f.close()
     return varianceDictionary
 
-def featureSelection(wildfireData, varianceDictionary, csvFilePath):
+def featureSelectionFilename(features):
     """
-    Pickle a series of distance metrics and write a CSV file containing each metric's mean visual fidelity and variance
-    across all the policies. CSV: metric column list, visual fidelity mean, variance, variable count
+    Each of the features will be recorded into the filename.
+
+    :param features: The features we will want to incorporate into a filename
+    :return:
+    """
+    filename =""
+    for feature in features:
+        if filename != "":
+            filename += "-"
+        feature.replace("_", " ").split("-")
+        filename += feature.replace(" ", "_")
+    return filename
+
+def featureSelectionProcessUnpickled(unpickled):
+    """
+    Get the mean value of all the policies in the file.
+    :param unpickled:
+    :return:
+    """
+    total = 0.0
+    for v in unpickled:
+        total += v
+    return total/float(len(unpickled))
+
+def getNextFeatureToEvaluate(wildfireData):
+    """
+    Find the next list of features to evaluate based on what is found on the file system.
+    :return:
+    """
+    # All the potential metrics
+    bigList = wildfireData.ALL_STITCHING_VARIABLES
+
+    # Get a list of the output files in the directory
+    allFiles = os.listdir(configDict["feature selection results directory"])
+
+    # Split each of the files by the metric names they contain
+    currentFeatures = []
+    for f in allFiles:
+        cur = f.replace("_", " ").split("-")
+        currentFeatures.append(cur)
+
+    # Find the largest metric being worked on
+    maxLength = max([max(len(k)) for k in currentFeatures])
+    currentLayer = [x for x in currentFeatures if len(x) == maxLength]
+    countInLayer = len(currentLayer)
+
+    # Find the metric that hasn't been processed for this count,
+    # or determine that the last layer is complete and adopt the best results,
+    # or if it hasn't completed the last layer, just exit
+    if (len(bigList) - maxLength) > countInLayer:
+        # The next set of features to evaluate
+        currentlyEvaluating = [x[-1] for x in currentLayer]
+        nextList = currentLayer[0][:-1]
+        nextFeature = (filter(lambda x: x not in nextList and x not in currentlyEvaluating, bigList))[0]
+        nextList.append(nextFeature)
+        filename = featureSelectionFilename(nextList)
+        open(filename, "w") # "touch" the file
+        return nextList
+    elif (len(bigList) - maxLength) == countInLayer:
+        bestValue = float("Inf")
+        bestList = None
+        for cur in currentLayer:
+            try:
+                pickledFileName = featureSelectionFilename(cur)
+                pickledFile = open(pickledFileName, "r")
+                unpickled = pickle.load(pickledFile)
+                mean = featureSelectionProcessUnpickled(unpickled)
+                if bestValue > mean:
+                    bestValue = mean
+                    bestList = cur
+            except Exception:
+                print "file did not exist {}".format()
+                exit()
+        nextList = bestList
+        nextFeature = (filter(lambda x: x not in nextList, bigList))[0]
+        nextList.append(nextFeature)
+        filename = featureSelectionFilename(nextList)
+        open(filename, "w") # "touch" the file
+        return nextList
+    else:
+        print "strange tidings"
+        exit(1)
+
+
+def featureSelection(wildfireData, varianceDictionary):
+    """
+    Check the outputs folder for output visual fidelity error then conditionally evaluate the next potential
+    additions to the metric.
     :param wildfireData: An instance of the WildfireData domain.
     :param varianceDictionary: A dictionary containing the variances for all the potential stitching variables.
     :return:
@@ -62,8 +148,6 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
                                              writeNormalizedMetric = None,
                                              initializeMetric = False)
 
-    outFile = file(csvFilePath, "wb")
-
     policies = []
     policyValues = []
     for targetPolicyERC in configDict["policy parameters ERC"]:
@@ -82,7 +166,7 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
                   policies=policies,
                   policyValues=policyValues,
                   stitchingDomain=stitchingDomain,
-                  outFile=outFile,
+                  outFile=None,
                   varianceDictionary=varianceDictionary):
         """
         Benchmark the current set of stitching variables.
@@ -136,71 +220,18 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
         outFile.write("{},{},{}\n".format(mean, variance, len(stitchingVariables)))
         return mean
 
-    def minStep(stitchingVariables):
-        """
-        Find the minimal benchmark in the next step (removing a feature)).
-        :param stitchingVariables:
-        :return:
-        """
-        minBench = float("inf")
-        for idx in range(0, len(stitchingVariables)):
-            potentialDistanceMetricVariables = stitchingVariables[0:idx] + stitchingVariables[idx+1:len(stitchingVariables)]
-            bench = benchmark(potentialDistanceMetricVariables)
-            if bench < minBench:
-                minBench = bench
-                ret = stitchingVariables[0:idx] + stitchingVariables[idx+1:len(currentDistanceMetricVariables)]
-        return ret
-
-    def minStepAdd(currentStitchingVariables, potentialStitchingVariables):
-        """
-        Find the minimal benchmark while adding variables.
-        :param: currentStitchingVariables the variables that will always be used
-        :param: potentialStitchingVariables the variables we can add
-        """
-        minBench = float("inf")
-        for idx in range(0, len(potentialStitchingVariables)):
-            cur = currentStitchingVariables + potentialStitchingVariables[idx]
-            bench = benchmark(cur)
-            if bench < minBench:
-                minBench = bench
-                ret = cur
-        return ret
-
-    ## REMOVING VARIABLES ##
-
-    currentDistanceMetricVariables = wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES
-    nextDistanceMetricVariables = currentDistanceMetricVariables
-    benchmark(nextDistanceMetricVariables)
-    while len(nextDistanceMetricVariables) > 1:
-        nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
-
-    currentDistanceMetricVariables = wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES
-    nextDistanceMetricVariables = currentDistanceMetricVariables
-    benchmark(nextDistanceMetricVariables)
-    while len(nextDistanceMetricVariables) > 1:
-        nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
-
-    currentDistanceMetricVariables = ["Precipitation start",
-        "MaxTemperature start",
-        "MinHumidity start",
-        "WindSpeed start",
-        "ignitionCovertype start",
-        "ignitionSlope start",
-        "startIndex start",
-        "endIndex start",
-        "ERC start",
-        "SC start"]
-    nextDistanceMetricVariables = currentDistanceMetricVariables
-    benchmark(nextDistanceMetricVariables)
-    while len(nextDistanceMetricVariables) > 1:
-        nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
-
-    ## ADDING VARIABLES ##
-    currentDistanceMetricVariables = []
-    nextDistanceMetricVariables = []
-    benchmark(nextDistanceMetricVariables)
-    while len(nextDistanceMetricVariables) > 1:
-        potentials = [x for x in wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES if x not in nextDistanceMetric]
-        nextDistanceMetricVariables = minStepAdd(nextDistanceMetricVariables, potentials)
-
-    outFile.close()
+    while True:
+        featureList = getNextFeatureToEvaluate()
+        filename = featureSelectionFilename(featureList)
+        outFile = file(filename, "wb")
+        stitchingVariables = [x + " start" for x in featureList]
+        benchmark(
+            stitchingVariables,
+            benchmarks=benchmarks,
+            policies=policies,
+            policyValues=policyValues,
+            stitchingDomain=stitchingDomain,
+            outFile=outFile,
+            varianceDictionary=varianceDictionary
+                  )
+        outFile.close()

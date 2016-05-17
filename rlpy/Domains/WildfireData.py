@@ -33,6 +33,29 @@ class WildfireData(Domain):
       International Journal of Wildland Fire, 22(7), 871-882.
     """
 
+    # All the variables that could be used in stitching, without their start/end identifier
+    ALL_STITCHING_VARIABLES = [
+        "Fuel Model", # \/ pulled from the landscape summary of the prior time step's onPolicy landscape
+        "Canopy Closure",
+        "Canopy Height",
+        "Canopy Base Height",
+        "Canopy Bulk Density",
+        "Covertype",
+        "Stand Density Index",
+        "Succession Class",
+        "Maximum Time in State",
+        "Stand Volume Age",
+        "Precipitation", # \/ pulled from the current row's state
+        "MaxTemperature",
+        "MinHumidity",
+        "WindSpeed",
+        "ignitionCovertype",
+        "ignitionSlope",
+        "startIndex",
+        "ERC",
+        "SC"
+    ]
+
     # All the variables that could be used in stitching
     ALL_PRE_TRANSITION_STITCHING_VARIABLES = [
         "Fuel Model start", # \/ pulled from the landscape summary of the prior time step's onPolicy landscape

@@ -229,7 +229,7 @@ def test_wildfire_produce_metrics_feature_selection():
     variancesPath = configDict["variances output path"]
     f = open(variancesPath, "r")
     varianceDictionary = pickle.load(f)
-    csvFilePath = configDict["experimental outputs directory"] + "feature_selection_performances.csv"
+    csvFilePath = configDict["experimental outputs directory"] + "feature_selection_performances_updated.csv"
     experiments.produce_metrics.featureSelection(wildfireData, varianceDictionary, csvFilePath)
 
 def test_wildfire_structural_bias():

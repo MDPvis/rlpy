@@ -1,12 +1,13 @@
 clusterConfigurationDict = {}
 clusterConfigurationDict["raw landscape directory"] = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/"
+clusterConfigurationDict["tmp directory"] = "/scratch/eecs-share/rhoutman/mcgregse/data/tmp/"
 clusterConfigurationDict["landscape summary directory"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/landscapes/"
-clusterConfigurationDict["landscape processing jump"] = 1
+clusterConfigurationDict["landscape processing jump"] = -50
 
-clusterConfigurationDict["raw CSV path"] = "/scratch/eecs-share/rhoutman/FireWoman/results/estimatedoutput.csv"
-clusterConfigurationDict["processed CSV path"] = "/nfs/stak/students/m/mcgregse/Projects/rlpy/experiments/data/processed.csv"
+clusterConfigurationDict["raw CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/estimatedoutput.csv"
+clusterConfigurationDict["processed CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/processed.csv"
 
-clusterConfigurationDict["variances output path"] = "/nfs/stak/students/m/mcgregse/Projects/rlpy/experiments/data/variances.pkl"
+clusterConfigurationDict["variances output path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/variances.pkl"
 
 clusterConfigurationDict["horizon"] = 99
 clusterConfigurationDict["target trajectory count"] = 30

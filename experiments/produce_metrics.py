@@ -15,6 +15,7 @@ import pickle
 import rlpy.Domains.StitchingPackage.benchmark
 import rlpy.Domains.StitchingPackage.MahalanobisDistance
 import rlpy.Domains.Stitching
+from experiments.configurations import clusterConfigurationDict as configDict
 
 def computeVariances(wildfireData, outFilePath):
     """
@@ -47,7 +48,7 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
 
     stitchingDomain = rlpy.Domains.Stitching(wildfireData,
                                              rolloutCount = 0,
-                                             horizon = 100,
+                                             horizon = 99,
                                              databasePolicies = [],
                                              targetPolicies = [],
                                              targetPoliciesRolloutCount = 0,
@@ -65,9 +66,8 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
 
     policies = []
     policyValues = []
-    # todo: when doing the actual experiments, these values should be associated with the sampled policies:
-    for targetPolicyERC in databasePolicyParameters["ercThreshold"]:
-        for targetPolicyTime in databasePolicyParameters["timeUntilEndOfFireSeasonThreshold"]:
+    for targetPolicyERC in configDict["policy parameters ERC"]:
+        for targetPolicyTime in configDict["policy parameters startIndex"]:
             policyValues.append([targetPolicyERC, targetPolicyTime])
             policies.append(wildfirePolicySeverityFactory(targetPolicyERC, targetPolicyTime))
 
@@ -117,10 +117,8 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
             stitchingDomain.setMetric(mahaMetric)
             stitchingDomain.setDatabase(db)
             rollouts = stitchingDomain.getRollouts(
-                #count=50,
-                #horizon=100,
-                count=2, # todo: change this to 50
-                horizon=2, # todo: change this to 100
+                count=30,
+                horizon=99,
                 policy=policies[idx],
                 domain=None,
                 biasCorrected=True,
@@ -140,7 +138,7 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
 
     def minStep(stitchingVariables):
         """
-        Find the minimal benchmark in the next step.
+        Find the minimal benchmark in the next step (removing a feature)).
         :param stitchingVariables:
         :return:
         """
@@ -153,35 +151,56 @@ def featureSelection(wildfireData, varianceDictionary, csvFilePath):
                 ret = stitchingVariables[0:idx] + stitchingVariables[idx+1:len(currentDistanceMetricVariables)]
         return ret
 
-    currentDistanceMetricVariables = wildfireData.ALL_STITCHING_VARIABLES
+    def minStepAdd(currentStitchingVariables, potentialStitchingVariables):
+        """
+        Find the minimal benchmark while adding variables.
+        :param: currentStitchingVariables the variables that will always be used
+        :param: potentialStitchingVariables the variables we can add
+        """
+        minBench = float("inf")
+        for idx in range(0, len(potentialStitchingVariables)):
+            cur = currentStitchingVariables + potentialStitchingVariables[idx]
+            bench = benchmark(cur)
+            if bench < minBench:
+                minBench = bench
+                ret = cur
+        return ret
+
+    ## REMOVING VARIABLES ##
+
+    currentDistanceMetricVariables = wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES
     nextDistanceMetricVariables = currentDistanceMetricVariables
     benchmark(nextDistanceMetricVariables)
-
     while len(nextDistanceMetricVariables) > 1:
         nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
 
-    currentDistanceMetricVariables = [
-        "Fuel Model start",
-        "Canopy Closure start",
-        "Canopy Height start",
-        "Canopy Base Height start",
-        "Canopy Bulk Density start",
-        "Covertype start",
-        "Stand Density Index start",
-        "Succession Class start",
-        "Maximum Time in State start",
-        "Stand Volume Age start"
-    ]
+    currentDistanceMetricVariables = wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES
     nextDistanceMetricVariables = currentDistanceMetricVariables
+    benchmark(nextDistanceMetricVariables)
     while len(nextDistanceMetricVariables) > 1:
         nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
+
+    currentDistanceMetricVariables = ["Precipitation start",
+        "MaxTemperature start",
+        "MinHumidity start",
+        "WindSpeed start",
+        "ignitionCovertype start",
+        "ignitionSlope start",
+        "startIndex start",
+        "endIndex start",
+        "ERC start",
+        "SC start"]
+    nextDistanceMetricVariables = currentDistanceMetricVariables
+    benchmark(nextDistanceMetricVariables)
+    while len(nextDistanceMetricVariables) > 1:
+        nextDistanceMetricVariables = minStep(nextDistanceMetricVariables)
+
+    ## ADDING VARIABLES ##
+    currentDistanceMetricVariables = []
+    nextDistanceMetricVariables = []
+    benchmark(nextDistanceMetricVariables)
+    while len(nextDistanceMetricVariables) > 1:
+        potentials = [x for x in wildfireData.ALL_PRE_TRANSITION_STITCHING_VARIABLES if x not in nextDistanceMetric]
+        nextDistanceMetricVariables = minStepAdd(nextDistanceMetricVariables, potentials)
 
     outFile.close()
-
-if __name__ == "__main__":
-    assert False # todo: change to the proper databaseCSVPath and outputVariancesPath
-    databaseCSVPath = "synthesis_tests/wildfire_data/wildfire_processed.csv"
-    wildfireData = WildfireData(databaseCSVPath)
-    outputVariancesPath = "synthesis_tests/wildfire_data/wildfire_variances.pkl"
-    varianceDictionary = computeVariances(wildfireData, outputVariancesPath)
-    featureSelection(wildfireData, varianceDictionary)

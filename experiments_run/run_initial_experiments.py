@@ -20,10 +20,24 @@ def test_post_process_landscapes():
     """
     landscapeDirectory = configDict["raw landscape directory"]
     resultsDirectory = configDict["landscape summary directory"]
-    files = os.listdir(landscapeDirectory)
-    fileNum = 0
-    while fileNum < len(files):
+    allFiles = os.listdir(landscapeDirectory)
+    currentlyOutputFiles = os.listdir(resultsDirectory)
+    files = []
+
+    def diff(first, second):
+        second = set(second)
+        return [item for item in first if item not in second]
+
+    missing = diff(allFiles, currentlyOutputFiles)
+    for filename in missing:
+        if "lcp_" in filename and ("onPolicy" in filename or "offPolicy" in filename):
+            files.append(filename)
+
+    print "processing {} files".format(len(files))
+    fileNum = len(files)-1
+    while fileNum >= 0:
         f = files[fileNum]
+
         print "processing {}".format(f)
         if os.path.isfile(resultsDirectory+f):
             print "skipping forward {} since this landscape is processed".format(configDict["landscape processing jump"])
@@ -42,7 +56,27 @@ def test_post_process_landscapes():
             print type(inst)
             print inst.args
             print "failed to summarize: {}".format(f)
+        fileNum += (-1)
+
+def test_check_for_incomplete_pickles():
+    """
+    Open all the landscape pickles and check that they are properly formatted. Print the pickles that are not well formatted.
+    """
+    resultsDirectory = configDict["landscape summary directory"]
+    files = os.listdir(resultsDirectory)
+    fileNum = 0
+    while fileNum < len(files):
+        f = open(resultsDirectory + files[fileNum],"rb")
+        try:
+            arr = pickle.load(f)
+            assert arr[0] >= 0
+            assert arr[1] >= 0
+            assert arr[2] >= 0
+        except Exception as inst:
+            print files[fileNum]
+        f.close()
         fileNum += 1
+    
 
 def test_post_process_data():
     """
@@ -63,8 +97,8 @@ def test_validate_database():
     with open(configDict["processed CSV path"]) as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            assert float(row["Fuel Model start"]) >= 90.0, "{}".format(row["Fuel Model start"])
-            assert float(row["Canopy Closure start"]) >= 0.0, "{}".format(row["Canopy Closure start"])
+            assert float(row["Fuel Model start"]) >= 0.0, "{}".format(row)
+            assert float(row["Canopy Closure start"]) >= 0.0, "{}".format(row)
             assert float(row["Canopy Closure start"]) <= 100.0, "{}".format(row["Canopy Closure start"])
             assert float(row["Canopy Height start"]) >= 0.0, "{}".format(row["Canopy Height start"])
             assert float(row["Canopy Height start"]) < 99999.0, "{}".format(row["Canopy Height start"])
@@ -77,7 +111,7 @@ def test_validate_database():
             assert float(row["Succession Class start"]) >= 0.0, "{}".format(row["Succession Class start"])
             assert float(row["Maximum Time in State start"]) >= 0.0, "{}".format(row["Maximum Time in State start"])
             assert float(row["Stand Volume Age start"]) >= 0.0, "{}".format(row["Stand Volume Age start"])
-            assert float(row["Precipitation start"]) >= 0.0, "{}".format(row["fuelModel"])
+            assert float(row["Precipitation start"]) >= 0.0, "{}".format(row["Precipitation start"])
             assert float(row["MaxTemperature start"]) >= -50.0, "{}".format(row["MaxTemperature start"])
             assert float(row["MinHumidity start"]) >= 0.0, "{}".format(row["MinHumidity start"])
             assert float(row["WindSpeed start"]) >= 0.0, "{}".format(row["WindSpeed start"])
@@ -89,8 +123,8 @@ def test_validate_database():
             assert float(row["ERC start"]) < 100.1, "{}".format(row["ERC start"])
             assert float(row["SC start"]) >= 0.0, "{}".format(row["SC start"])
             assert float(row["SC start"]) < 100.1, "{}".format(row["SC start"])
-            assert float(row["Fuel Model end"]) >= 80.0, "{}".format(row["Fuel Model end"])
-            assert float(row["Fuel Model end"]) < 200.1, "{}".format(row["Fuel Model end"])
+            assert float(row["Fuel Model end"]) >= 0.0, "{}".format(row)
+            assert float(row["Fuel Model end"]) < 200.1, "{}".format(row)
 
 def test_wildfire_produce_metrics_variances():
     """
@@ -190,12 +224,12 @@ def test_wildfire_produce_metrics_feature_selection():
     Find the performance of a series of different distance metrics.
     :return:
     """
-    databaseCSVPath = "experiments/data/processed_database.csv"
-    wildfireData = WildfireData(databaseCSVPath, visualizationVariables=["reward"])
-    variancesPath = "experiments/data/processed_database_variances.pkl"
+    databaseCSVPath = configDict["processed CSV path"]
+    wildfireData = WildfireData(databaseCSVPath)
+    variancesPath = configDict["variances output path"]
     f = open(variancesPath, "r")
     varianceDictionary = pickle.load(f)
-    csvFilePath = "experiments/results/wildfire_metric_performances.csv"
+    csvFilePath = configDict["experimental outputs directory"] + "feature_selection_performances.csv"
     experiments.produce_metrics.featureSelection(wildfireData, varianceDictionary, csvFilePath)
 
 def test_wildfire_structural_bias():
@@ -203,23 +237,18 @@ def test_wildfire_structural_bias():
     Find the performance in the presence or absence of the bias correction.
     :return:
     """
-    databaseCSVPath = "experiments/data/processed_database.csv"
+    databaseCSVPath = configDict["processed CSV path"]
     wildfireData = WildfireData(databaseCSVPath)
 
-    # Update all the transition tuples in the database
-    wildfireData.populateDatabase(
-        stitchingVariables=STITCHING_VARIABLES,
-        visualizationVariables=VISUALIZATION_VARIABLES)
-
-    inputVariancesPath = "synthesis_tests/wildfire_data/wildfire_variances_hand_constructed.pkl"
+    inputVariancesPath = configDict["variances output path"]
     inputVariances = file(inputVariancesPath, "rb")
     varianceDictionary = pickle.load(inputVariances)
-    outputCSVFilePath = "synthesis_tests/wildfire_data/structural_bias.csv"
+    outputCSVFilePath = configDict["experimental outputs directory"] + "structural_bias.csv"
     outCSVFile = file(outputCSVFilePath, "wb")
 
     stitchingDomain = rlpy.Domains.Stitching(wildfireData,
                                              rolloutCount = 0,
-                                             horizon = 100,
+                                             horizon = 99,
                                              databasePolicies = [],
                                              targetPolicies = [],
                                              targetPoliciesRolloutCount = 0,
@@ -252,8 +281,8 @@ def test_wildfire_structural_bias():
         stitchingDomain,
         outCSVFile,
         benchmarks,
-        STITCHING_VARIABLES,
+        wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES,
         policyValues,
         policies,
-        sampleCount=50,
-        horizon=100)
+        sampleCount=30,
+        horizon=99)

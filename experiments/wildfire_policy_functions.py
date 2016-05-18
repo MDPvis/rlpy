@@ -34,24 +34,33 @@ def wildfirePolicySeverityFactory(ercThreshold, timeUntilEndOfFireSeasonThreshol
             return 0
     return policy_severity
 
-def wildfirePolicyLocationFactory(leftBoundary, topBoundary):
+def wildfirePolicyLocationFactory(set1):
     """
     Gives a policy function defined on the two parameters. The default action is to suppress the fire.
-    :param leftBoundary: All fires to the left are allowed to burn.
-    :param topBoundary: All fires above the boundary are allowed to burn.
+    :param left: Boolean indicates whether this if for the first set of trajectories (True) or the second (False).
+
+    See: https://github.com/smcgregor/FireWoman/blob/guide-for-logistic-policy/FireAp/Policy.cpp#L440
+         https://github.com/smcgregor/FireWoman/blob/guide-for-logistic-policy/FireAp/simulator/ManagementZone.cpp#L684
+
     :return: A function mapping states to actions
     """
-
-    def policy_location(state, possibleActions, leftBoundary=leftBoundary, topBoundary=topBoundary):
-        xCoordinate = state[0]
-        yCoordinate = state[0]
-        assert xCoordinate >= 0, "xCoordinate was {}".format(xCoordinate)
-        assert xCoordinate <= 1127, "xCoordinate was {}".format(xCoordinate)
-        assert yCoordinate >= 0, "yCoordinate was {}".format(yCoordinate)
-        assert yCoordinate <= 940, "yCoordinate was {}".format(yCoordinate)
-        if xCoordinate >= leftBoundary and yCoordinate <= topBoundary:
-            return 1
+    def policy_location(state, possibleActions, transitionTuple=None, set1=set1):
+        numCols = 1127
+        pixelNumber = transitionTuple.additionalState["ignitionLocation"]
+        xCoordinate = int(pixelNumber/numCols)
+        assert pixelNumber >= 0, "pixelNumber was {}".format(pixelNumber)
+        assert pixelNumber <= 1000000, "pixelNumber was {}".format(pixelNumber)
+        assert xCoordinate >= 0, "yCoordinate was {}".format(xCoordinate)
+        assert xCoordinate <= 940, "xCoordinate was {}".format(xCoordinate)
+        if xCoordinate < 470:
+            if set1:
+                return 0
+            else:
+                return 1
         else:
-            return 0
+            if set1:
+                return 1
+            else:
+                return 0
     return policy_location
 

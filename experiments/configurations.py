@@ -21,6 +21,7 @@ landscapeConfiguration["landscape summary directory"] = "/nfs/eecs-fserv/share/r
 landscapeConfiguration["landscape processing jump"] = -5
 landscapeConfiguration["raw CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/spatial/estimate/estimatedoutput_split_policy.csv"
 landscapeConfiguration["processed CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/spatial/estimate/processed.csv"
+landscapeConfiguration["erc and e database path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/processed.csv"
 landscapeConfiguration["variances output path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/variances.pkl"
 landscapeConfiguration["horizon"] = 99
 landscapeConfiguration["target trajectory count"] = 30
@@ -36,7 +37,8 @@ landscapeConfiguration2["landscape summary directory"] = "/nfs/eecs-fserv/share/
 landscapeConfiguration2["landscape processing jump"] = -5
 landscapeConfiguration2["raw CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/spatial2/estimate/estimatedoutput_split_policy.csv"
 landscapeConfiguration2["processed CSV path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/spatial2/estimate/processed.csv"
-landscapeConfiguration2["variances output path"] = = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/variances.pkl"
+landscapeConfiguration2["erc and e database path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/processed.csv"
+landscapeConfiguration2["variances output path"] = "/nfs/eecs-fserv/share/rhoutman/mcgregse/data/variances.pkl"
 landscapeConfiguration2["horizon"] = 99
 landscapeConfiguration2["target trajectory count"] = 30
 landscapeConfiguration2["policy parameters ERC"] = [0, 470] # hack

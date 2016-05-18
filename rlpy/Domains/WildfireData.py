@@ -450,6 +450,31 @@ class WildfireData(Domain):
         i = np.random.choice(len(self.init_state_tuples))
         return self.init_state_tuples[i]
 
+    def getSpatialPolicyRollouts(self):
+        """
+        Return the whole database, correct in distribution but not time series wise.
+        :return:
+        """
+        targetRollouts = []
+        def arbitraryAppend(transition, targetRollouts=targetRollouts):
+            timeStep = int(transition.additionalState["year"])
+            while len(targetRollouts) <= timeStep:
+                targetRollouts.append([])
+            targetRollouts[timeStep].append(transition)
+        for transition in self.database:
+            arbitraryAppend(transition)
+        trajectories = []
+
+        # While rollouts remain
+        while len(targetRollouts[0]):
+            trajectory = []
+            for eventsForTimestep in targetRollouts:
+                state = eventsForTimestep[-1].visualizationResultState
+                trajectory.append(state)
+                eventsForTimestep.pop()
+            trajectories.append(trajectory)
+
+        return trajectories
 
     def getTargetRollouts(self, ercPolicyParameter, timePolicyParameter):
         """

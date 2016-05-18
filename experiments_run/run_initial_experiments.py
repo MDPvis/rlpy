@@ -285,6 +285,66 @@ def test_wildfire_policy_space():
         sampleCount=configDict["target trajectory count"],
         horizon=configDict["horizon"])
 
+def test_wildfire_spatial_policy_space():
+    """
+    Test the performance of MFMCi for the spatial policy
+    :return:
+    """
+    firstPolicySet = True # todo, change
+    outfilename = "test_wildfire_policy_spatial_policy_1.csv" # todo, change
+
+    targetDatabaseCSVPath = configDict["processed CSV path"]
+    wildfireDataTarget = WildfireData(targetDatabaseCSVPath)
+    wildfireDataTarget.populateDatabase()
+
+    databaseCSVPath = configDict["erc and e database path"]
+    wildfireData = WildfireData(databaseCSVPath)
+    wildfireData.populateDatabase()
+    stitchingDomainDatabase = rlpy.Domains.Stitching(wildfireData,
+                                                   rolloutCount = 0,
+                                                   horizon = 99,
+                                                   databasePolicies = [],
+                                                   targetPolicies = [],
+                                                   targetPoliciesRolloutCount = 0,
+                                                   stitchingToleranceSingle = .1,
+                                                   stitchingToleranceCumulative = .1,
+                                                   seed = None,
+                                                   database = None,
+                                                   labels = None,
+                                                   metricFile = None,
+                                                   optimizeMetric = False,
+                                                   writeNormalizedMetric = None,
+                                                   initializeMetric = False)
+
+    inputVariancesPath = configDict["variances output path"]
+    inputVariances = file(inputVariancesPath, "rb")
+    varianceDictionary = pickle.load(inputVariances)
+    outputCSVFilePath = configDict["experimental outputs directory"] + outfilename
+    outCSVFile = file(outputCSVFilePath, "wb")
+
+    policies = []
+    policyValues = []
+    policyValues.append([firstPolicySet])
+    policies.append(experiments.wildfire_policy_functions.wildfirePolicySeverityFactory(firstPolicySet))
+
+    benchmarks = []
+    for policyValue in policyValues:
+        base_rollouts = wildfireDataTarget.getSpatialPolicyRollouts()
+        current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
+        benchmarks.append(current)
+
+    experiments.policy_space_error.visualFidelityError(
+        wildfireData,
+        varianceDictionary,
+        stitchingDomainDatabase,
+        outCSVFile,
+        benchmarks,
+        wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES,
+        policyValues,
+        policies,
+        sampleCount=configDict["target trajectory count"],
+        horizon=configDict["horizon"])
+
 
 def test_wildfire_produce_metrics_feature_selection():
     """

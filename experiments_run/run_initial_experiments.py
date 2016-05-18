@@ -435,3 +435,109 @@ def test_wildfire_structural_bias():
         policies,
         sampleCount=30,
         horizon=99)
+
+def test_wildfire_structural_bias_on_location_policies():
+    """
+    Find the performance in the presence or absence of the bias correction
+    for the spatial policies.
+    :return:
+    """
+
+    firstPolicySet = True # todo, change
+    outfilename = "test_wildfire_policy_spatial_policy_1.csv" # todo, change
+
+    targetDatabaseCSVPath = configDict["processed CSV path"]
+    wildfireDataTarget = WildfireData(targetDatabaseCSVPath)
+    wildfireDataTarget.populateDatabase()
+
+    databaseCSVPath = configDict["erc and e database path"]
+    wildfireData = WildfireData(databaseCSVPath)
+    wildfireData.populateDatabase()
+    stitchingDomainDatabase = rlpy.Domains.Stitching(wildfireData,
+                                                     rolloutCount = 0,
+                                                     horizon = 99,
+                                                     databasePolicies = [],
+                                                     targetPolicies = [],
+                                                     targetPoliciesRolloutCount = 0,
+                                                     stitchingToleranceSingle = .1,
+                                                     stitchingToleranceCumulative = .1,
+                                                     seed = None,
+                                                     database = None,
+                                                     labels = None,
+                                                     metricFile = None,
+                                                     optimizeMetric = False,
+                                                     writeNormalizedMetric = None,
+                                                     initializeMetric = False)
+
+    inputVariancesPath = configDict["variances output path"]
+    inputVariances = file(inputVariancesPath, "rb")
+    varianceDictionary = pickle.load(inputVariances)
+    outputCSVFilePath = configDict["experimental outputs directory"] + outfilename
+    outCSVFile = file(outputCSVFilePath, "wb")
+
+    policies = []
+    policyValues = []
+    policyValues.append([firstPolicySet])
+    policies.append(experiments.wildfire_policy_functions.wildfirePolicyLocationFactory(firstPolicySet))
+
+    benchmarks = []
+    for policyValue in policyValues:
+        base_rollouts = wildfireDataTarget.getSpatialPolicyRollouts()
+        current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
+        benchmarks.append(current)
+
+    var_count = len(wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES)
+    mahaMetric = rlpy.Domains.StitchingPackage.MahalanobisDistance.MahalanobisDistance(var_count,
+                                                                                       stitchingDomainDatabase,
+                                                                                       target_policies=[],
+                                                                                       normalize_starting_metric=False,
+                                                                                       cached_metric=None)
+    inverseVariances = []
+    for stitchingVariable in wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES:
+        cur = varianceDictionary[stitchingVariable]
+        assert cur >= 0
+        if cur == 0:
+            inverseVariances.append(0.0)
+        else:
+            inverseVariances.append(1.0/float(cur))
+    mahaMetric.updateInverseVariance(inverseVariances)
+
+    stitchingDomainDatabase.setMetric(mahaMetric)
+
+    db = wildfireData.getDatabase()
+    dbHalved =[]
+    for transition in db:
+        if transition.additionalState["initialFire"] % 2 == 0:
+            dbHalved.append(transition)
+    dbBiased =[]
+    for transition in db:
+        if transition.additionalState["onPolicy"] == 1:
+            dbBiased.append(transition)
+
+    outCSVFile.write("biased database,performance\n")
+
+    stitchingDomainDatabase.setDatabase(dbBiased)
+    rollouts = stitchingDomainDatabase.getRollouts(
+        count=configDict["target trajectory count"],
+        horizon=configDict["horizon"],
+        policy=policies[0],
+        domain=None,
+        biasCorrected=True,
+        actionsInDistanceMetric=False)
+    total = 0
+    for variable in stitchingDomainDatabase.domain.VISUALIZATION_VARIABLES:
+        total += benchmarks[0].benchmark_variable(rollouts, variable)
+    outCSVFile.write("true,{}\n".format(total))
+
+    stitchingDomainDatabase.setDatabase(dbHalved)
+    rollouts = stitchingDomainDatabase.getRollouts(
+        count=configDict["target trajectory count"],
+        horizon=configDict["horizon"],
+        policy=policies[0],
+        domain=None,
+        biasCorrected=True,
+        actionsInDistanceMetric=False)
+    total = 0
+    for variable in stitchingDomainDatabase.domain.VISUALIZATION_VARIABLES:
+        total += benchmarks[0].benchmark_variable(rollouts, variable)
+    outCSVFile.write("false,{}\n".format(total))

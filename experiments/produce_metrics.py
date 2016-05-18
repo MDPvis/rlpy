@@ -81,9 +81,14 @@ def getNextFeatureToEvaluate(wildfireData):
         currentFeatures.append(cur)
 
     # Find the largest metric being worked on
-    maxLength = max([max(len(k)) for k in currentFeatures])
-    currentLayer = [x for x in currentFeatures if len(x) == maxLength]
-    countInLayer = len(currentLayer)
+    if len(currentFeatures) > 0:
+        maxLength = max([max(len(k)) for k in currentFeatures])
+        currentLayer = [x for x in currentFeatures if len(x) == maxLength]
+        countInLayer = len(currentLayer)
+    else:
+        maxLength = len(bigList)
+        currentLayer = []
+        countInLayer = 0
 
     # Find the metric that hasn't been processed for this count,
     # or determine that the last layer is complete and adopt the best results,
@@ -99,7 +104,7 @@ def getNextFeatureToEvaluate(wildfireData):
         return nextList
     elif (len(bigList) - maxLength) == countInLayer:
         bestValue = float("Inf")
-        bestList = None
+        bestList = []
         for cur in currentLayer:
             try:
                 pickledFileName = featureSelectionFilename(cur)
@@ -221,8 +226,9 @@ def featureSelection(wildfireData, varianceDictionary):
         return mean
 
     while True:
-        featureList = getNextFeatureToEvaluate()
+        featureList = getNextFeatureToEvaluate(wildfireData)
         filename = featureSelectionFilename(featureList)
+        print "evaluating {}".format(filename)
         outFile = file(filename, "wb")
         stitchingVariables = [x + " start" for x in featureList]
         benchmark(

@@ -522,7 +522,7 @@ def test_wildfire_structural_bias_on_location_policies():
         horizon=configDict["horizon"],
         policy=policies[0],
         domain=None,
-        biasCorrected=True,
+        biasCorrected=False,
         actionsInDistanceMetric=False)
     total = 0
     for variable in stitchingDomainDatabase.domain.VISUALIZATION_VARIABLES:

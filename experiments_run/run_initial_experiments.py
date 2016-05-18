@@ -13,6 +13,9 @@ import rlpy.Domains.StitchingPackage.benchmark
 from rlpy.Domains.WildfireData import WildfireData
 import pickle
 from experiments.configurations import clusterConfigurationDict as configDict
+from experiments.configurations import clusterConfiguration as clusterDict
+from experiments.configurations import landscapeConfiguration as landscapeDict
+import numpy as np
 
 def test_post_process_landscapes():
     """
@@ -57,6 +60,51 @@ def test_post_process_landscapes():
             print inst.args
             print "failed to summarize: {}".format(f)
         fileNum += (-1)
+
+def test_post_process_spatial_policy_landscapes():
+    """
+    Generate pickled version of all the state summaries for each of the landscapes in the landscapes directory
+    """
+    landscapeDirectory = configDict["raw landscape directory"]
+    resultsDirectory = configDict["landscape summary directory"]
+    allFiles = os.listdir(landscapeDirectory)
+    currentlyOutputFiles = os.listdir(resultsDirectory)
+    files = []
+
+    def diff(first, second):
+        second = set(second)
+        return [item for item in first if item not in second]
+
+    missing = diff(allFiles, currentlyOutputFiles)
+    for filename in missing:
+        if "lcp-" in filename and "split" in filename:
+            files.append(filename)
+
+    print "processing {} files".format(len(files))
+    fileNum = len(files)-1
+    while fileNum >= 0:
+        f = files[fileNum]
+
+        print "processing {}".format(f)
+        if os.path.isfile(resultsDirectory+f):
+            print "skipping forward {} since this landscape is processed".format(configDict["landscape processing jump"])
+            fileNum += configDict["landscape processing jump"]
+            continue
+        try:
+            s = WildfireData.lcpStateSummary(landscapeDirectory+f)
+            if os.path.isfile(resultsDirectory+f):
+                print "skipping forward {} since this landscape is processed".format(configDict["landscape processing jump"])
+                fileNum += configDict["landscape processing jump"]
+                continue
+            out = open(resultsDirectory+f, "wb")
+            pickle.dump(s, out)
+            out.close()
+        except Exception as inst:
+            print type(inst)
+            print inst.args
+            print "failed to summarize: {}".format(f)
+        fileNum += (-1)
+
 
 def test_check_for_incomplete_pickles():
     """
@@ -125,6 +173,25 @@ def test_validate_database():
             assert float(row["SC start"]) < 100.1, "{}".format(row["SC start"])
             assert float(row["Fuel Model end"]) >= 0.0, "{}".format(row)
             assert float(row["Fuel Model end"]) < 200.1, "{}".format(row)
+
+def test_get_database_mean_and_variances():
+    """
+    Process the database columns and get their mean and variances.
+    """
+    configDict = clusterDict
+    with open(configDict["processed CSV path"]) as csvfile:
+        reader = csv.DictReader(csvfile)
+        headerNames = reader.fieldnames
+        for headerName in headerNames:
+            if headerName == "lcpFileName":
+                continue
+            csvfile.seek(0)
+            reader = csv.DictReader(csvfile)
+            column = []
+            for row in reader:
+                column.append(row[headerName])
+            dat = np.array(column).astype(np.float)
+            print "{},{},{}".format(headerName, np.mean(dat), rlpy.Domains.StitchingPackage.benchmark.Benchmark.variance(dat))
 
 def test_wildfire_produce_metrics_variances():
     """
@@ -230,7 +297,7 @@ def test_wildfire_produce_metrics_feature_selection():
     f = open(variancesPath, "r")
     varianceDictionary = pickle.load(f)
     csvFilePath = configDict["experimental outputs directory"] + "feature_selection_performances_updated.csv"
-    experiments.produce_metrics.featureSelection(wildfireData, varianceDictionary, csvFilePath)
+    experiments.produce_metrics.featureSelection(wildfireData, varianceDictionary)
 
 def test_wildfire_structural_bias():
     """

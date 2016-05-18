@@ -303,9 +303,9 @@ class WildfireData(Domain):
             return summary
         
         #landscapeFileName.split("/")[-1] in ["lcp_9_71_1_60_144_onPolicy.lcp.bz2", "lcp_9_51_0_80_144_offPolicy.lcp.bz2","lcp_1_8_1_20_36_onPolicy.lcp.bz2", "lcp_2_81_0_20_0_offPolicy.lcp.bz2", "lcp_1_57_0_80_36_offPolicy.lcp.bz2", "lcp_30_69_0_80_0_offPolicy.lcp.bz2", "lcp_6_99_0_60_144_offPolicy.lcp.bz2"]:
-        elif True:
-            print "returning start state for one of the bad lcps"
-            return WildfireData.INIT_STATE
+        #elif True:
+        #    print "returning start state for one of the bad lcps"
+        #    return WildfireData.INIT_STATE
 
         print "Warning!!! reprocessing Landscape: {}".format(landscapeFileName)
         print "checked cached path: {}".format(cachedPath)
@@ -384,50 +384,30 @@ class WildfireData(Domain):
                 initialFire = int(transitionDictionary["initialFire"])
                 year = int(transitionDictionary["year"])
                 action = int(transitionDictionary["action"])
-                offPolicy = "offPolicy" in transitionDictionary["lcpFileName"]
 
                 # We can't render year 100 because there is no fire experienced at that year
                 if year == 99:
                     continue
-                
-                parts = transitionDictionary["lcpFileName"].split("_")
-                ercPolicyThreshold = int(parts[4])
-                daysTilEndPolicyThreshold = int(parts[5])
 
-                if offPolicy:
-                    policyLabel = "offPolicy"
-                else:
-                    policyLabel = "onPolicy"
-
-                landscapeEndFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                landscapeEndFileName = configDict["landscape summary directory"] + "lcp-{}-{}-{}-split.lcp.bz2".format(
                     initialFire,
                     year,
-                    action,
-                    ercPolicyThreshold,
-                    daysTilEndPolicyThreshold,
-                    policyLabel
+                    action
                 )
-                assert landscapeEndFileName.split("/")[-1] == transitionDictionary["lcpFileName"].split("/")[-1] + ".bz2", "{} != {}".format(landscapeEndFileName, transitionDictionary["lcpFileName"])
 
                 if year == 0:
                     summary = WildfireData.INIT_STATE
                 else:
-                    landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                    landscapeStartFileName =  configDict["landscape summary directory"] + "lcp-{}-{}-{}-split.lcp.bz2".format(
                         initialFire,
                         year-1,
-                        0,
-                        ercPolicyThreshold,
-                        daysTilEndPolicyThreshold,
-                        "onPolicy"
+                        0
                     )
                     if not os.path.isfile(landscapeStartFileName):
-                        landscapeStartFileName = "/scratch/eecs-share/rhoutman/FireWoman/results/landscapes/lcp_{}_{}_{}_{}_{}_{}.lcp.bz2".format(
+                        landscapeStartFileName =  configDict["landscape summary directory"] + "lcp-{}-{}-{}-split.lcp.bz2".format(
                             initialFire,
                             year-1,
-                            1,
-                            ercPolicyThreshold,
-                            daysTilEndPolicyThreshold,
-                            "onPolicy"
+                            1
                         )
                     print "processing {} and {}".format(landscapeStartFileName, landscapeEndFileName)
                     summary = WildfireData.lcpStateSummary(landscapeStartFileName)

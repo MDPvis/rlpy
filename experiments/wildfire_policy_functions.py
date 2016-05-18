@@ -49,7 +49,7 @@ def wildfirePolicyLocationFactory(set1):
         pixelNumber = transitionTuple.additionalState["ignitionLocation"]
         xCoordinate = int(pixelNumber/numCols)
         assert pixelNumber >= 0, "pixelNumber was {}".format(pixelNumber)
-        assert pixelNumber <= 1000000, "pixelNumber was {}".format(pixelNumber)
+        assert pixelNumber <= 1059380, "pixelNumber was {}".format(pixelNumber)
         assert xCoordinate >= 0, "yCoordinate was {}".format(xCoordinate)
         assert xCoordinate <= 940, "xCoordinate was {}".format(xCoordinate)
         if xCoordinate < 470:

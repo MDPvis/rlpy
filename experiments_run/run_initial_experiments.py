@@ -350,6 +350,7 @@ def test_wildfire_spatial_policy_space():
     mahaMetric.updateInverseVariance(inverseVariances)
 
     stitchingDomainDatabase.setMetric(mahaMetric)
+    stitchingDomainDatabase.setDatabase(wildfireData.getDatabase())
 
     outCSVFile.write("error, ERC policy variable, time policy variable\n")
     rollouts = stitchingDomainDatabase.getRollouts(
@@ -363,7 +364,7 @@ def test_wildfire_spatial_policy_space():
     for variable in stitchingDomainDatabase.domain.VISUALIZATION_VARIABLES:
         total += benchmarks[0].benchmark_variable(rollouts, variable)
 
-    outCSVFile.write("{},{},{}\n".format(total, policyValue[0], policyValue[1]))
+    outCSVFile.write("{},{}\n".format(total, policyValue[0]))
 
 
 

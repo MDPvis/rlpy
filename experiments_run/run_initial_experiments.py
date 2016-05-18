@@ -325,7 +325,7 @@ def test_wildfire_spatial_policy_space():
     policies = []
     policyValues = []
     policyValues.append([firstPolicySet])
-    policies.append(experiments.wildfire_policy_functions.wildfirePolicySeverityFactory(firstPolicySet))
+    policies.append(experiments.wildfire_policy_functions.wildfirePolicyLocationFactory(firstPolicySet))
 
     benchmarks = []
     for policyValue in policyValues:
@@ -333,17 +333,38 @@ def test_wildfire_spatial_policy_space():
         current = rlpy.Domains.StitchingPackage.benchmark.Benchmark(base_rollouts, 2, benchmarkActions=False)
         benchmarks.append(current)
 
-    experiments.policy_space_error.visualFidelityError(
-        wildfireData,
-        varianceDictionary,
-        stitchingDomainDatabase,
-        outCSVFile,
-        benchmarks,
-        wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES,
-        policyValues,
-        policies,
-        sampleCount=configDict["target trajectory count"],
-        horizon=configDict["horizon"])
+    var_count = len(wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES)
+    mahaMetric = rlpy.Domains.StitchingPackage.MahalanobisDistance.MahalanobisDistance(var_count,
+                                                                                       stitchingDomainDatabase,
+                                                                                       target_policies=[],
+                                                                                       normalize_starting_metric=False,
+                                                                                       cached_metric=None)
+    inverseVariances = []
+    for stitchingVariable in wildfireData.BEST_PRE_TRANSITION_STITCHING_VARIABLES:
+        cur = varianceDictionary[stitchingVariable]
+        assert cur >= 0
+        if cur == 0:
+            inverseVariances.append(0.0)
+        else:
+            inverseVariances.append(1.0/float(cur))
+    mahaMetric.updateInverseVariance(inverseVariances)
+
+    stitchingDomainDatabase.setMetric(mahaMetric)
+
+    outCSVFile.write("error, ERC policy variable, time policy variable\n")
+    rollouts = stitchingDomainDatabase.getRollouts(
+        count=configDict["target trajectory count"],
+        horizon=configDict["horizon"],
+        policy=policies[0],
+        domain=None,
+        biasCorrected=True,
+        actionsInDistanceMetric=False)
+    total = 0
+    for variable in stitchingDomainDatabase.domain.VISUALIZATION_VARIABLES:
+        total += benchmarks[0].benchmark_variable(rollouts, variable)
+
+    outCSVFile.write("{},{},{}\n".format(total, policyValue[0], policyValue[1]))
+
 
 
 def test_wildfire_produce_metrics_feature_selection():

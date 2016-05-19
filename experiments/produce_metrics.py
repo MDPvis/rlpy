@@ -16,6 +16,7 @@ import rlpy.Domains.StitchingPackage.benchmark
 import rlpy.Domains.StitchingPackage.MahalanobisDistance
 import rlpy.Domains.Stitching
 from experiments.configurations import clusterConfigurationDict as configDict
+import sys
 
 def computeVariances(wildfireData, outFilePath):
     """
@@ -32,7 +33,7 @@ def computeVariances(wildfireData, outFilePath):
             values.append(transition.preStateDistanceMetricVariables[idx])
         variance = rlpy.Domains.StitchingPackage.benchmark.Benchmark.variance(values)
         varianceDictionary[variableNames[idx]] = variance
-    f = open(outFilePath, "wb")
+    f = open(configDict["feature selection results directory"]+outFilePath, "wb")
     pickle.dump(varianceDictionary, f)
     f.close()
     return varianceDictionary
@@ -52,17 +53,6 @@ def featureSelectionFilename(features):
         filename += feature.replace(" ", "_")
     return filename
 
-def featureSelectionProcessUnpickled(unpickled):
-    """
-    Get the mean value of all the policies in the file.
-    :param unpickled:
-    :return:
-    """
-    total = 0.0
-    for v in unpickled:
-        total += v
-    return total/float(len(unpickled))
-
 def getNextFeatureToEvaluate(wildfireData):
     """
     Find the next list of features to evaluate based on what is found on the file system.
@@ -76,13 +66,14 @@ def getNextFeatureToEvaluate(wildfireData):
 
     # Split each of the files by the metric names they contain
     currentFeatures = []
+    maxLength = 0
     for f in allFiles:
         cur = f.replace("_", " ").split("-")
+        maxLength = max(len(cur), maxLength)
         currentFeatures.append(cur)
 
     # Find the largest metric being worked on
     if len(currentFeatures) > 0:
-        maxLength = max([max(len(k)) for k in currentFeatures])
         currentLayer = [x for x in currentFeatures if len(x) == maxLength]
         countInLayer = len(currentLayer)
     else:
@@ -100,28 +91,32 @@ def getNextFeatureToEvaluate(wildfireData):
         nextFeature = (filter(lambda x: x not in nextList and x not in currentlyEvaluating, bigList))[0]
         nextList.append(nextFeature)
         filename = featureSelectionFilename(nextList)
-        open(filename, "w") # "touch" the file
+        open(configDict["feature selection results directory"]+filename, "w") # "touch" the file
         return nextList
     elif (len(bigList) - maxLength) == countInLayer:
         bestValue = float("Inf")
         bestList = []
         for cur in currentLayer:
             try:
-                pickledFileName = featureSelectionFilename(cur)
-                pickledFile = open(pickledFileName, "r")
-                unpickled = pickle.load(pickledFile)
-                mean = featureSelectionProcessUnpickled(unpickled)
+                filename = featureSelectionFilename(cur)
+                f = open(configDict["feature selection results directory"]+pickledFileName, "r")
+                line = f.readline()
+                mean = float(line.split(",")[1])
                 if bestValue > mean:
                     bestValue = mean
                     bestList = cur
+                f.close()
             except Exception:
-                print "file did not exist {}".format()
+                t, value, traceback = sys.exc_info()
+                print t
+                print value
+                print traceback
                 exit()
         nextList = bestList
         nextFeature = (filter(lambda x: x not in nextList, bigList))[0]
         nextList.append(nextFeature)
         filename = featureSelectionFilename(nextList)
-        open(filename, "w") # "touch" the file
+        open(configDict["feature selection results directory"]+filename, "w") # "touch" the file
         return nextList
     else:
         print "strange tidings"
@@ -229,7 +224,7 @@ def featureSelection(wildfireData, varianceDictionary):
         featureList = getNextFeatureToEvaluate(wildfireData)
         filename = featureSelectionFilename(featureList)
         print "evaluating {}".format(filename)
-        outFile = file(filename, "wb")
+        outFile = open(configDict["feature selection results directory"]+filename, "wb")
         stitchingVariables = [x + " start" for x in featureList]
         benchmark(
             stitchingVariables,

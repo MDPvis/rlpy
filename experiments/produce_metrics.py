@@ -84,7 +84,7 @@ def getNextFeatureToEvaluate(wildfireData):
     # Find the metric that hasn't been processed for this count,
     # or determine that the last layer is complete and adopt the best results,
     # or if it hasn't completed the last layer, just exit
-    if (len(bigList) - maxLength) > countInLayer:
+    if (len(bigList) - maxLength) >= countInLayer:
         # The next set of features to evaluate
         currentlyEvaluating = [x[-1] for x in currentLayer]
         nextList = currentLayer[0][:-1]
@@ -93,13 +93,13 @@ def getNextFeatureToEvaluate(wildfireData):
         filename = featureSelectionFilename(nextList)
         open(configDict["feature selection results directory"]+filename, "w") # "touch" the file
         return nextList
-    elif (len(bigList) - maxLength) == countInLayer:
+    elif (len(bigList) - maxLength) < countInLayer:
         bestValue = float("Inf")
         bestList = []
         for cur in currentLayer:
             try:
                 filename = featureSelectionFilename(cur)
-                f = open(configDict["feature selection results directory"]+pickledFileName, "r")
+                f = open(configDict["feature selection results directory"]+filename, "r")
                 line = f.readline()
                 mean = float(line.split(",")[1])
                 if bestValue > mean:
